@@ -1,6 +1,6 @@
 # From Semantics to Reasoning -- Modelling Pragmatic Argumentative Inferences
 
-This repository contains the experimental code, data, and analysis files used for the paper *"From Semantics to Reasoning -- Modelling Pragmatic Argumentative Inferences"*. 
+This repository contains the experimental code, data, and analysis files used for the paper *"From Semantics to Reasoning - Modelling Pragmatic Argumentative Inferences"*. 
 
 **Note on Models and Data:** This repository does not contain any trained models; you will need to train or download the required models independently. Additionally, the corpus preprocessing requires you to have the corresponding source corpora downloaded to your local device. We do not provide the raw source corpora here due to licensing restrictions.
 
