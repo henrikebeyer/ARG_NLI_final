@@ -1,0 +1,2 @@
+Feature,Coefficient,Beta_Coefficient,Odds Ratio,P_val,Significance,diff_from_mean_coeff
+seg1_senti,1.3347817700087152,0.6344747037675936,3.7991667638165474,8.499717588888916e-05,***,1.102543812353855

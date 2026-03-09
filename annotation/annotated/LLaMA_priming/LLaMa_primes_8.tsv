@@ -1,9 +1,3 @@
-ID	seg1_text	seg2_text	gold
-ArgEss_essay041_03	students might have little idea of the real challenges or the true situation when they enter the workforce after graduation	the internship, although without pay, can give them the experiences that money cannot buy	neu
-UKP_school_uniforms_newFormat_2277	School uniforms should be established in schools.	Children , especially those in middle and high school , are constantly concerned about their appearance , and wearing a school uniform will not alleviate this concern .	neu
-US2016_nodeset10436_030	WEBB 'll be coming in next	CLINTON was directly quoted , Senator	contradiction
-ComArg_GM_1197	if we decide to ban gay marriage we will be breaking the twelfth amendment. also it would  slightly break the third because only religious groups have stopped or tried to stop gay mariage! maybe the religious groups should be banned since they are interfering with equal rights!!!! DOWN WITH DISCRIMINATION!!!!!!	Marriage should be between a man and a woman	neu
-AAAI2018_01_16	 For all people except terrorist that's okey 	I'm against death penalty: a human cannot decide about the life of another human. 	contradiction
-IBM_stance_0440	This house would ban gambling	electronic funds transfers inherent in online gambling are being exploited by criminal interests	neu
-micro_b058_01	Perhaps it is less thrilling for a spectator than for the player,	It would be fair to make them into an Olympic event.	neu
-AAAI2018_02_11	Nuclear power is clean and emits significantly less CO2 than other renewable energy sources.	I think there are many cleaner and less dangerous alternatives such as solar power.	contradiction
+version https://git-lfs.github.com/spec/v1
+oid sha256:7536d1c942a8b5e96dd3734a40658e9dd89330a62d885d0e91b86ada1b774eca
+size 1651

@@ -1,3 +1,3 @@
-ID	relation	seg1_text	seg2_text	topic	nli	annot1	annot2	gold	neu conflict	disagree
-QT30_nodeset21338_003	support	there's a better way to maybe win hearts and minds	there's a risk of anything which is forced can sometimes have a corresponding resistance		neutral	contradiction	entailment	entailment		True
-Web_3278	attack	faith is believeing in something without evidence	evolution has actually never been observed		neutral	neu	neu	neu		
+version https://git-lfs.github.com/spec/v1
+oid sha256:8ab7fed672704738c8e824e7ccfa82be83ae91f49a0704ff9d90584d20f72415
+size 436

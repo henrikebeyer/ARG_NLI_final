@@ -1,0 +1,17 @@
+,0
+cosine_miniLM,0.4059843316635541
+jaccard_sim,0.3042590208266185
+seg1_dependency_distance_mean,0.13879104191971048
+seg1_doc_length,0.16040324402445733
+seg1_pos_prop_AUX,-0.10955578558404941
+seg1_n_tokens,0.16623864725539414
+seg1_sentence_length_median,0.15672664957209947
+seg1_n_unique_tokens,0.17837776742601102
+seg1_n_characters,0.18463337987905973
+seg1_flesch_reading_ease,-0.14672752147862536
+seg1_flesch_kincaid_grade,0.1853875849747849
+seg1_gunning_fog,0.17979041482836508
+seg1_automated_readability_index,0.1755944166215421
+seg1_lix,0.1595171228376653
+seg1_rix,0.15965092421267935
+joint_first_order_coherence,0.18073783014110328

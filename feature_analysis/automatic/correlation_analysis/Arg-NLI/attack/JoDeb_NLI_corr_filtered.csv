@@ -1,0 +1,9 @@
+,0
+cosine_miniLM,0.26379400782771517
+jaccard_sim,0.11536988075306613
+seg1_flesch_reading_ease,-0.1094115858221502
+seg1_flesch_kincaid_grade,0.10872888035104189
+seg1_gunning_fog,0.1228323588164372
+seg1_automated_readability_index,0.10876061073731556
+seg1_coleman_liau_index,0.10748343635767083
+seg1_lix,0.10085819574480222

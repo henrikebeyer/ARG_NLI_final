@@ -1,0 +1,6 @@
+,0
+seg2_senti,0.10251995309612214
+cosine_miniLM,0.3660699641471243
+jaccard_sim,0.1951320983380007
+seg2_pos_prop_PUNCT,-0.1007715220120865
+joint_first_order_coherence,0.14951809722262369
