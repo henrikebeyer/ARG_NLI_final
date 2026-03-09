@@ -1,31 +1,3 @@
-,0
-cosine_miniLM,0.40627189885570497
-jaccard_sim,0.3068591938455222
-seg1_dependency_distance_mean,0.17353678256224908
-seg1_passed_quality_check,0.12657217162014975
-seg2_n_stop_words,-0.10108381931488157
-seg1_oov_ratio,-0.25166219693734815
-seg2_oov_ratio,-0.19865702412247685
-seg1_pos_prop_ADJ,0.14612401888735332
-seg1_pos_prop_ADV,-0.10320183226776834
-seg1_pos_prop_AUX,0.12077931392450526
-seg1_pos_prop_INTJ,-0.10229654729107034
-seg1_pos_prop_NOUN,0.131517048685557
-seg2_pos_prop_NOUN,0.17266971868547296
-seg1_pos_prop_PART,0.15147049462602383
-seg2_pos_prop_SCONJ,-0.12180647544710889
-seg2_n_tokens,-0.11234899103889062
-seg1_token_length_median,0.15906426616662458
-seg2_token_length_median,0.1862127850989805
-seg2_sentence_length_median,-0.10618395629937918
-seg2_n_unique_tokens,-0.1120309559803901
-seg1_flesch_reading_ease,-0.17642559152201825
-seg2_flesch_reading_ease,-0.11393320589480205
-seg1_flesch_kincaid_grade,0.16233640165674992
-seg1_gunning_fog,0.14525671300231358
-seg1_automated_readability_index,0.19312563641079003
-seg1_coleman_liau_index,0.27268581154824634
-seg2_coleman_liau_index,0.12431434019356058
-seg1_lix,0.1772421015699969
-seg1_rix,0.1896771511117008
-joint_first_order_coherence,0.1971537152313008
+version https://git-lfs.github.com/spec/v1
+oid sha256:b1a11e0a2a5ba0addc31cf8ec42dd305b92505b4c3e907fdc06427304a5574c6
+size 1219

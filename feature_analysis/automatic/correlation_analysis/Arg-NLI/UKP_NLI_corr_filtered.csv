@@ -1,14 +1,3 @@
-,0
-cosine_miniLM,0.3620747133044011
-jaccard_sim,0.1657115238753286
-seg2_passed_quality_check,0.1166110249645854
-seg2_pos_prop_NOUN,0.13375956500830113
-seg2_sentence_length_median,0.13894037228022757
-seg2_flesch_reading_ease,-0.1448867809910906
-seg2_flesch_kincaid_grade,0.16119778128142698
-seg2_gunning_fog,0.15590096218150948
-seg2_automated_readability_index,0.15645822189987985
-seg2_coleman_liau_index,0.1148513244333265
-seg2_lix,0.16339750859528057
-seg2_rix,0.1571684685220341
-joint_first_order_coherence,0.19295919727782448
+version https://git-lfs.github.com/spec/v1
+oid sha256:f65f114ab215757cfa33adf4e39b90b29349c17fe0c06a20d2da82e8e59aeed0
+size 528

@@ -1,8 +1,3 @@
-,0
-cosine_miniLM,0.20307460827858545
-seg2_n_stop_words,0.1594885043928565
-seg2_doc_length,0.17792262992295174
-seg2_n_tokens,0.18085918050086738
-seg2_n_unique_tokens,0.17985263930674436
-seg2_n_characters,0.17906095911835448
-seg2_n_sentences,0.14864674251640977
+version https://git-lfs.github.com/spec/v1
+oid sha256:e841794fb46a85e3a1760bdff0290191f045d4125fccf569f90a1c999e54fda7
+size 260

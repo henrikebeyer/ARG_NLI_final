@@ -1,0 +1,975 @@
+---
+title: "contradiction_attack_stat_modelFitting"
+author: "Henrike Beyer"
+date: "2025-11-11"
+output: html_document
+---
+
+
+```{r}
+library(lme4)
+library(broom.mixed)
+library(dplyr)
+```
+
+
+This is the notebook documenting the data inspection and analysis for the ARG-NLI project. It will document the inspection of distributions of NLI and ARG labels, as well as their overlap. It documents also the distribution of categorical and continuous predictors by label (box / violin plots). 
+
+```{r}
+hard_threshold <- read.csv("D:\\OneDrive - University of Dundee\\PhD\\ARG-NLI_project\\feature_analysis\\automatic\\new_features\\corpus_threshold_hard_0.999_standardised_and_log_scaled.csv")
+
+factor_vars <- c(
+  "seg1_has_deduction", "seg2_has_deduction",
+  "seg1_has_refutation", "seg2_has_refutation", 
+  "seg1_has_condition", "seg2_has_condition",
+  "seg1_has_explanation", "seg2_has_explanation", 
+  "seg1_has_adverb_of_emphasis", "seg2_has_adverb_of_emphasis",
+  "seg1_has_justification", "seg2_has_justification", 
+  "seg1_has_modal_verbs", "seg2_has_modal_verbs",
+  "seg1_senti", "seg2_senti"
+)
+
+hard_threshold[factor_vars] <- lapply(hard_threshold[factor_vars], function(x) as.factor(as.character(x)))
+
+```
+
+```{r}
+blocks <- list(
+  lexical_markers = c("seg1_has_deduction", "seg2_has_deduction",
+                      "seg1_has_refutation", "seg2_has_refutation", 
+                      "seg1_has_condition", "seg2_has_condition",
+                      "seg1_has_explanation", "seg2_has_explanation", 
+                      "seg1_has_adverb_of_emphasis", "seg2_has_adverb_of_emphasis",
+                      "seg1_has_justification", "seg2_has_justification", 
+                      "seg1_has_modal_verbs", "seg2_has_modal_verbs"),
+  lexical_sim = c("tfidf_cosine_similarity"),
+  semantic = c("cosine_similarity"),
+  structure = c("seg1_sentence_length_mean", "seg2_sentence_length_mean"),
+  #                     "seg1_n_tokens", "seg2_n_tokens"),
+  syntactic = c("seg1_dependency_distance_mean", "seg2_dependency_distance_mean",
+                "seg1_prop_adjacent_dependency_relation_mean", "seg2_prop_adjacent_dependency_relation_mean",
+                "seg1_avg_subclauses", "seg2_avg_subclauses",
+                "seg1_avg_tree_depth", "seg2_avg_tree_depth"),
+  perplexity = c("seg1_perplexity", "seg2_perplexity", #"seg1_given_seg2_perplexity", 
+                 "seg2_given_seg1_perplexity"),
+  indirectness = c("seg1_impScore", "seg2_impScore", "prag_distance"),
+  sentiment = c("seg1_senti", "seg2_senti")
+)
+
+interactions <- list(
+  c("seg1_avg_subclauses", "seg1_sentence_length_mean"),
+  c("seg2_avg_subclauses", "seg2_sentence_length_mean"),
+  c("seg1_avg_tree_depth", "seg1_avg_subclauses"),
+  c("seg2_avg_tree_depth", "seg2_avg_subclauses"),
+  c("seg1_avg_tree_depth", "seg1_sentence_length_mean"),
+  c("seg2_avg_tree_depth", "seg2_sentence_length_mean"),
+  c("seg1_dependency_distance_mean", "seg1_sentence_length_mean"),
+  c("seg2_sentence_length_mean", "seg2_dependency_distance_mean"),
+  c("seg1_dependency_distance_mean", "seg1_avg_subclauses"),
+  c("prag_distance", "cosine_similarity"),
+  c("tfidf_cosine_similarity", "cosine_similarity"),
+  c("seg2_dependency_distance_mean", "seg2_avg_subclauses"),
+  c("seg2_sentence_length_mean", "seg2_n_tokens"),
+  c("seg2_avg_subclauses", "seg2_n_tokens"),
+  c("seg1_avg_subclauses", "seg1_n_tokens"),
+  c("seg1_sentence_length_mean", "seg1_n_tokens"),
+  c("seg2_dependency_distance_mean", "seg2_n_tokens"),
+  c("tfidf_cosine_similarity", "prag_distance"),
+  c("seg1_avg_tree_depth", "seg1_dependency_distance_mean"),
+  c("seg2_avg_tree_depth", "seg2_n_tokens"),
+  c("seg1_dependency_distance_mean", "seg1_n_tokens"),
+  c("seg1_avg_tree_depth", "seg1_n_tokens"),
+  c("seg2_dependency_distance_mean", "seg2_prop_adjacent_dependency_relation_mean"),
+  c("seg1_prop_adjacent_dependency_relation_mean", "seg1_dependency_distance_mean")
+)
+
+```
+
+```{r}
+# Combine all variables you plan to use anywhere
+all_predictors <- unique(unlist(c(blocks, lapply(interactions, unlist))))
+all_vars <- c(all_predictors, "CorpusID", "arg_nli_attack", "arg_nli_support")
+
+# Drop rows with any missing values in those columns
+hard_threshold_complete <- hard_threshold[complete.cases(hard_threshold[all_vars]), ]
+
+attack_only_df <- hard_threshold_complete %>% filter(is_attack == 1)
+attack_only_df$CorpusID <- as.factor(attack_only_df$CorpusID)
+
+# From your support-only data,
+# select only the columns needed for the model,
+# and then drop any row that has an NA in ANY of those columns.
+attack_clean_df <- attack_only_df %>%
+  select(all_of(all_vars)) %>%
+  na.omit()
+
+# Check the before and after (optional, but good)
+message("Rows in support_only_df: ", nrow(attack_only_df))
+message("Rows in attack_clean_df (after removing NAs): ", nrow(attack_clean_df))
+```
+
+
+```{r}
+vars_to_formula <- function(vars, interactions = NULL) {
+  f <- paste(vars, collapse = " + ")
+  if (!is.null(interactions) && length (interactions) > 0) {
+    int_terms <- sapply(interactions, function(x) paste(x, collapse = ":"))
+  }
+  f
+}
+```
+
+
+```{r}
+is_contradiction <- "is_entailment"
+is_contradiction <- "is_contradiction"
+is_neutral <- "is_neutral"
+is_support <- "is_support"
+is_attack <- "is_attack"
+support_is_entailment <- "arg_nli_support"
+attack_is_contradiction <- "arg_nli_attack"
+
+```
+
+```{r}
+fit_blockwise_models <- function(df, outcome, blocks, interactions=NULL,
+                                 random = "(1 | CorpusID)", family = binomial,
+                                 base_controls = c("seg1_n_tokens", "seg2_n_tokens"),
+                                 add_interactions_last = TRUE) {
+  models <- list()
+  results <- tibble()
+  
+  # baseline model
+  base_formula <- paste0(outcome, " ~ ", paste(base_controls, collapse = " + "), " + ", random)
+  message("Fitting baseline model: ", base_formula)
+  m_base <- glmer(as.formula(base_formula), data = df,
+                  family = family, control = glmerControl(optimizer = "bobyqa"))
+  models[["baseline"]] <- m_base
+  results <- bind_rows(results, tibble(block = "baseline", AIC = AIC(m_base)))
+  
+  # accumulate variables and add blocks
+  current_vars <- base_controls
+  block_names <- names(blocks)
+  
+  for (b in block_names) {
+    current_vars <- c(current_vars, blocks[[b]])
+    fstring <- paste0(outcome, " ~ ", vars_to_formula(current_vars), " + ", random)
+    message("Fitting block: ", b)
+    m <- glmer(as.formula(fstring), data = df, family = family,
+               control = glmerControl(optimizer = "bobyqa"))
+    models[[b]] <- m
+    
+    comp <- anova(models[[length(models)-1]], m, test = "Chisq")
+    results <- bind_rows(results,
+      tibble(block = b,
+             AIC = AIC(m),
+             delta_AIC = diff(comp$AIC),
+             LRT = comp$Chisq[2],
+             p = comp$`Pr(>Chisq)`[2]))
+  }
+  
+  # optional final model with all interactions
+  if (add_interactions_last && !is.null(interactions)) {
+    fstring_full <- paste0(outcome, " ~ ",
+                           vars_to_formula(unlist(blocks, use.names = FALSE), interactions),
+                           " + ", random)
+    message("Fitting FULL model (all blocks + interactions)")
+    m_full <- glmer(as.formula(fstring_full), data = df,
+                    family = family, control = glmerControl(optimizer = "bobyqa"))
+    models[["full"]] <- m_full
+    results <- bind_rows(results,
+      tibble(block = "full",
+             AIC = AIC(m_full),
+             delta_AIC = NA,
+             LRT = NA,
+             p = NA))
+  }
+  
+  list(models = models, comparison = results)
+}
+```
+
+```{r}
+fit_block_models_safe <- function(df, outcome, blocks, random = "(1 | CorpusID)",
+                                  base_controls = c("seg1_n_tokens", "seg2_n_tokens"),
+                                  family = binomial) {
+  library(lme4)
+  library(performance)
+  library(dplyr)
+  
+  models <- list()
+  results <- tibble()
+  
+  # baseline model
+  base_formula <- paste0(outcome, " ~ ", paste(base_controls, collapse = " + "), " + ", random)
+  message("Fitting baseline model: ", base_formula)
+  m_base <- glmer(as.formula(base_formula), data = df,
+                  family = family, control = glmerControl(optimizer = "bobyqa"))
+  models[["baseline"]] <- m_base
+  results <- bind_rows(results, tibble(
+    block = "baseline", AIC = AIC(m_base),
+    delta_AIC = NA, LRT = NA, p = NA, r2_marg = NA
+  ))
+  
+  # loop over blocks
+  for (b in names(blocks)) {
+    vars <- c(base_controls, blocks[[b]])
+    fstring <- paste0(outcome, " ~ ", paste(vars, collapse = " + "), " + ", random)
+    message("Fitting block-only model: ", b)
+    
+    m <- tryCatch(
+      glmer(as.formula(fstring), data = df, family = family,
+            control = glmerControl(optimizer = "bobyqa")),
+      error = function(e) { warning("Model failed for block ", b, ": ", e$message); return(NULL) }
+    )
+    
+    if (!is.null(m)) {
+      models[[b]] <- m
+      comp <- tryCatch(anova(m_base, m, test = "Chisq"), error = function(e) NULL)
+      r2 <- tryCatch(performance::r2_nakagawa(m)$R2_marginal, error = function(e) NA)
+      
+      row <- tibble(
+        block = b,
+        AIC = AIC(m),
+        delta_AIC = if (!is.null(comp)) AIC(m_base) - AIC(m) else NA,
+        LRT = if (!is.null(comp)) comp$Chisq[2] else NA,
+        p = if (!is.null(comp)) comp$`Pr(>Chisq)`[2] else NA,
+        r2_marg = r2
+      )
+      results <- bind_rows(results, row)
+    } else {
+      results <- bind_rows(results, tibble(
+        block = b, AIC = NA, delta_AIC = NA, LRT = NA, p = NA, r2_marg = NA
+      ))
+    }
+  }
+  
+  list(models = models, summary = results)
+}
+```
+
+
+```{r}
+outcome <- attack_is_contradiction
+
+block_results <- fit_block_models_safe(attack_only_df, outcome = outcome, blocks = blocks)
+
+block_results$summary %>%
+  arrange(AIC)  # smaller AIC = better fit
+```
+```{r}
+block_results$summary %>%
+  arrange(AIC)
+```
+
+```{r}
+library(ggplot2)
+ggplot(block_results$summary[-1,], aes(x = reorder(block, -delta_AIC), y = delta_AIC)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(x = "Feature Block", y = "ΔAIC improvement over baseline",
+       title = "Relative contribution of feature blocks")
+```
+```{r}
+extract_block_details <- function(block_results) {
+  library(broom.mixed)
+  lapply(names(block_results$models), function(b) {
+    m <- block_results$models[[b]]
+    if (is.null(m)) return(NULL)
+    broom.mixed::tidy(m, effects = "fixed", conf.int = TRUE, exponentiate = TRUE) %>%
+      mutate(block = b)
+  }) %>% bind_rows() %>% filter(term != "(Intercept)")
+}
+```
+
+```{r}
+block_details <- extract_block_details(block_results)
+```
+
+```{r}
+library(car)
+car::Anova(block_results$models[["semantic"]])
+car::Anova(block_results$models[["indirectness"]])
+car::Anova(block_results$models[["perplexity"]])
+car::Anova(block_results$models[["lexical_sim"]])
+```
+
+
+```{r}
+strong_blocks <- c("semantic", "indirectness", "perplexity", "lexical_sim")
+
+sig_features <- block_details %>%
+  filter(block %in% strong_blocks,
+         p.value < 0.05,
+         abs(estimate - 1) > 0.05) %>%
+  arrange(block, p.value) %>%
+  select(block, term, estimate, p.value, conf.low, conf.high)
+
+sig_features
+```
+
+```{r}
+unique(sig_features$term)
+```
+
+
+```{r}
+final_features <- c("prag_distance",
+                    "seg2_n_tokens",
+                    "seg2_impScore",
+                    "seg1_impScore",
+                    "seg1_n_tokens",
+                    "tfidf_cosine_similarity",
+                    "seg2_given_seg1_perplexity",
+                    "seg2_perplexity",
+                    "seg1_perplexity",
+                    "cosine_similarity"
+)
+
+f_final <- as.formula(
+  paste("arg_nli_attack ~", paste(final_features, collapse = " + "), "+ (1 | CorpusID)")
+)
+
+model_att_con_baseline <-glmer(arg_nli_attack ~ (1|CorpusID) + seg1_n_tokens + seg2_n_tokens, data = attack_clean_df,
+                       family = binomial,
+                       control = glmerControl(optimizer = "bobyqa"))
+
+model_att_con_blockFeatures <- glmer(f_final, data = attack_clean_df,
+                     family = binomial,
+                     control = glmerControl(optimizer = "bobyqa"))
+```
+
+```{r}
+#model_with_length <- glmer(arg_nli_attack ~ (1|CorpusID) 
+#                        + cosine_similarity 
+#                        + prag_distance
+#                        + seg2_given_seg1_perplexity 
+#                        + seg1_perplexity 
+#                        + seg2_perplexity
+#                        + seg2_n_tokens
+#                        + seg1_n_tokens
+#                        + seg1_impScore
+#                        + seg2_impScore
+#                        + tfidf_cosine_similarity, 
+#                        data = hard_threshold_complete, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+```{r}
+model_att_con_without_length <- glmer(arg_nli_attack ~ (1|CorpusID) 
+                        + prag_distance
+                        #+ seg2_n_tokens
+                        + seg2_impScore
+                        + seg1_impScore
+                        #+ seg1_n_tokens
+                        + tfidf_cosine_similarity
+                        + seg2_given_seg1_perplexity
+                        + seg2_perplexity
+                        + seg1_perplexity
+                        + cosine_similarity
+                        , data = attack_clean_df, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+```{r}
+library(car)
+
+anova(model_att_con_baseline, model_att_con_blockFeatures, model_att_con_without_length, test = "Chisq")
+message("R2 model block features")
+performance::r2_nakagawa(model_att_con_blockFeatures)
+#message("R2 with length")
+#performance::r2_nakagawa(model_with_length)
+message("R2 without lenght")
+performance::r2_nakagawa(model_att_con_without_length)
+vif(model_att_con_without_length)
+#vif(model_with_length)
+vif(model_supp_ent_without_length)
+#vif(model_interact_with_length)
+```
+
+```{r}
+# --- 1. Load the necessary libraries ---
+library(tidyverse)
+library(fastDummies) # For handling multi-level factors
+
+# --- 2. Get predictor names ---
+# Use the formula for your 22-predictor 'model_final' for 'arg_nli_attack'
+fe_formula <- formula(model_supp_ent_blockFeatures, fixed.only = TRUE)
+raw_predictors <- all.vars(fe_formula)[-1] 
+
+# --- 3. Create numeric-only dataframe for correlation ---
+model_data_numeric <- attack_clean_df #%>%
+  
+  # Select only the predictors that are actually in the final model
+  #select(all_of(raw_predictors)) %>%
+  
+  # *** NEW DUMMY VARIABLE STEP ***
+  # This will find any factor/character columns (like 'seg2_senti')
+  # and create new 0/1 columns for each level (e.g., seg2_senti_POSITIVE)
+  #dummy_cols(remove_selected_columns = TRUE, # Removes the original factor
+  #           remove_first_dummy = FALSE)     # Keep all levels for the matrix
+
+# --- 4. Calculate the correlation matrix ---
+predictor_cor_matrix <- cor(attack_clean_df[, unique(final_features)], use = "pairwise.complete.obs")
+
+# --- 5. Filter for strong correlations ---
+# (The rest of your code from before is perfect)
+strong_correlations <- as.data.frame(predictor_cor_matrix) %>%
+  rownames_to_column("Var1") %>%
+  pivot_longer(
+    cols = -Var1,
+    names_to = "Var2",
+    values_to = "Correlation"
+  ) %>%
+  filter(abs(Correlation) > 0.4 & abs(Correlation) < 1.0 & Var1 < Var2) %>%
+  arrange(desc(abs(Correlation)))
+
+# --- 6. Print the final, clean table ---
+print(strong_correlations)
+```
+
+```{r}
+model_supp_ent_interact_per <- glmer(arg_nli_attack ~ (1|CorpusID) 
+                        + prag_distance
+                        + seg2_n_tokens
+                        + seg2_impScore
+                        + seg1_impScore
+                        + seg1_n_tokens
+                        + tfidf_cosine_similarity
+                        + seg2_given_seg1_perplexity * seg2_perplexity
+                        + seg2_given_seg1_perplexity * seg1_perplexity
+                        + cosine_similarity
+                        , data = attack_clean_df, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+
+```{r}
+anova(model_att_con_baseline, model_att_con_blockFeatures, model_supp_ent_interact_per, test = "Chisq")
+performance::r2_nakagawa(model_att_con_blockFeatures)
+performance::r2_nakagawa(model_supp_ent_interact_per)
+vif(model_att_con_blockFeatures)
+vif(model_supp_ent_interact_per)
+
+library(car)
+car::Anova(model_supp_ent_interact_per)
+```
+
+```{r}
+model_att_con_interact_prag_cos <- glmer(arg_nli_attack ~ (1|CorpusID) 
+                        + prag_distance * cosine_similarity
+                        + seg2_n_tokens
+                        + seg2_impScore
+                        + seg1_impScore
+                        + seg1_n_tokens
+                        + tfidf_cosine_similarity
+                        + seg2_given_seg1_perplexity * seg2_perplexity
+                        + seg2_given_seg1_perplexity * seg1_perplexity
+                        #+ cosine_similarity
+                        , data = attack_clean_df, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+
+```{r}
+anova(model_supp_ent_baseline, model_att_con_blockFeatures, model_att_con_interact_prag_cos, test = "Chisq")
+performance::r2_nakagawa(model_att_con_blockFeatures)
+performance::r2_nakagawa(model_att_con_interact_prag_cos)
+vif(model_att_con_blockFeatures)
+vif(model_att_con_interact_prag_cos)
+
+library(car)
+car::Anova(model_att_con_interact_prag_cos)
+```
+```{r}
+model_att_con_interact_tfidf_cos <- glmer(arg_nli_attack ~ (1|CorpusID) 
+                        + prag_distance * cosine_similarity
+                        + seg2_n_tokens
+                        + seg2_impScore
+                        + seg1_impScore
+                        + seg1_n_tokens
+                        + tfidf_cosine_similarity
+                        + seg2_given_seg1_perplexity * seg2_perplexity
+                        + seg2_given_seg1_perplexity * seg1_perplexity
+                        + tfidf_cosine_similarity * cosine_similarity
+                        #+ cosine_similarity
+                        , data = attack_clean_df, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+
+```{r}
+anova(model_att_con_baseline, model_att_con_interact_prag_cos, model_att_con_interact_tfidf_cos, test = "Chisq")
+performance::r2_nakagawa(model_att_con_interact_prag_cos)
+performance::r2_nakagawa(model_att_con_interact_tfidf_cos)
+vif(model_att_con_interact_prag_cos)
+vif(model_att_con_interact_tfidf_cos)
+
+library(car)
+car::Anova(model_att_con_interact_tfidf_cos)
+```
+
+```{r}
+model_att_con_interact_tfidf_prag <- glmer(arg_nli_attack ~ (1|CorpusID) 
+                        + prag_distance * cosine_similarity
+                        + seg2_n_tokens
+                        + seg2_impScore
+                        + seg1_impScore
+                        + seg1_n_tokens
+                        + tfidf_cosine_similarity
+                        + seg2_given_seg1_perplexity * seg2_perplexity
+                        + seg2_given_seg1_perplexity * seg1_perplexity
+                        + tfidf_cosine_similarity * cosine_similarity
+                        + tfidf_cosine_similarity * prag_distance
+                        , data = attack_clean_df, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+
+```{r}
+anova(model_att_con_baseline, model_att_con_interact_prag_cos, model_att_con_interact_tfidf_prag, test = "Chisq")
+performance::r2_nakagawa(model_att_con_interact_prag_cos)
+performance::r2_nakagawa(model_att_con_interact_tfidf_prag)
+vif(model_att_con_interact_prag_cos)
+vif(model_att_con_interact_tfidf_prag)
+
+library(car)
+car::Anova(model_att_con_interact_tfidf_prag)
+```
+```{r}
+model_att_con_interact_three_way <- glmer(arg_nli_attack ~ (1|CorpusID) 
+                        + prag_distance * cosine_similarity
+                        + seg2_n_tokens
+                        + seg2_impScore
+                        + seg1_impScore
+                        + seg1_n_tokens
+                        + tfidf_cosine_similarity
+                        + seg2_given_seg1_perplexity * seg2_perplexity
+                        + seg2_given_seg1_perplexity * seg1_perplexity
+                        + tfidf_cosine_similarity * cosine_similarity * prag_distance
+                        #+ tfidf_cosine_similarity 
+                        , data = attack_clean_df, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+
+```{r}
+anova(model_att_con_baseline, model_att_con_interact_tfidf_prag, model_att_con_interact_three_way, test = "Chisq")
+performance::r2_nakagawa(model_att_con_interact_tfidf_prag)
+performance::r2_nakagawa(model_att_con_interact_three_way)
+vif(model_att_con_interact_tfidf_prag)
+vif(model_att_con_interact_three_way)
+
+library(car)
+car::Anova(model_att_con_interact_three_way)
+```
+
+
+```{r}
+model_att_con_interact_three_way_prag <- glmer(arg_nli_attack ~ (1|CorpusID) 
+                        + prag_distance * cosine_similarity * seg2_given_seg1_perplexity
+                        + seg2_n_tokens
+                        + seg2_impScore
+                        + seg1_impScore
+                        + seg1_n_tokens
+                        + tfidf_cosine_similarity
+                        + seg2_given_seg1_perplexity * seg2_perplexity
+                        + seg2_given_seg1_perplexity * seg1_perplexity
+                        + tfidf_cosine_similarity * cosine_similarity * prag_distance
+                        , data = attack_clean_df, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+```{r}
+anova(model_att_con_baseline, model_att_con_interact_three_way, model_att_con_interact_three_way_prag, test = "Chisq")
+performance::r2_nakagawa(model_att_con_interact_three_way)
+performance::r2_nakagawa(model_att_con_interact_three_way_prag)
+vif(model_att_con_interact_three_way)
+vif(model_att_con_interact_three_way_prag)
+
+library(car)
+car::Anova(model_att_con_interact_three_way_prag)
+```
+```{r}
+model_att_con_interact_imp <- glmer(arg_nli_attack ~ (1|CorpusID) 
+                        + prag_distance * cosine_similarity
+                        + seg2_n_tokens
+                        + seg2_impScore * prag_distance
+                        + seg1_impScore * prag_distance
+                        + seg1_n_tokens
+                        + tfidf_cosine_similarity
+                        + seg2_given_seg1_perplexity * seg2_perplexity
+                        + seg2_given_seg1_perplexity * seg1_perplexity
+                        + tfidf_cosine_similarity * cosine_similarity * prag_distance
+                        #+ tfidf_cosine_similarity 
+                        , data = attack_clean_df, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+```{r}
+anova(model_att_con_baseline, model_att_con_interact_three_way, model_att_con_interact_imp, test = "Chisq")
+performance::r2_nakagawa(model_att_con_interact_three_way)
+performance::r2_nakagawa(model_att_con_interact_imp)
+vif(model_att_con_interact_three_way)
+vif(model_att_con_interact_imp)
+
+library(car)
+car::Anova(model_att_con_interact_imp)
+```
+
+```{r}
+model_att_con_interact_three_way_remove_marginal <- glmer(arg_nli_attack ~ (1|CorpusID) 
+                        + prag_distance * cosine_similarity
+                        + seg2_n_tokens
+                        + seg2_impScore
+                        #+ seg1_impScore * prag_distance
+                        + seg1_n_tokens
+                        + tfidf_cosine_similarity
+                        + seg2_given_seg1_perplexity * seg2_perplexity
+                        + seg2_given_seg1_perplexity * seg1_perplexity
+                        + tfidf_cosine_similarity * cosine_similarity * prag_distance
+                        #+ tfidf_cosine_similarity 
+                        , data = attack_clean_df, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+```{r}
+anova(model_att_con_baseline, model_att_con_interact_three_way, model_att_con_interact_three_way_remove_marginal, test = "Chisq")
+performance::r2_nakagawa(model_att_con_interact_three_way)
+performance::r2_nakagawa(model_att_con_interact_three_way_remove_marginal)
+vif(model_att_con_interact_three_way)
+vif(model_att_con_interact_three_way_remove_marginal)
+
+library(car)
+car::Anova(model_att_con_interact_three_way_remove_marginal)
+```
+
+```{r}
+Anova(model_att_con_interact_three_way_remove_marginal)
+```
+```{r}
+library(broom.mixed)
+library(dplyr)
+
+effects_table <- tidy(model_att_con_interact_three_way_remove_marginal, effects = "fixed", conf.int = TRUE) %>%
+  arrange(p.value) %>%
+  mutate(significance = case_when(
+    p.value < 0.001 ~ "***",
+    p.value < 0.01  ~ "**",
+    p.value < 0.05  ~ "*",
+    TRUE ~ ""
+  ))
+
+effects_table
+```
+
+
+```{r}
+library(lme4)
+library(performance)
+library(broom.mixed)
+library(purrr)
+
+# Define your dropped blocks from earlier
+blocks_dropped <- list(
+  lexical_markers = c("seg1_has_deduction", "seg2_has_deduction",
+                      "seg1_has_refutation", "seg2_has_refutation", 
+                      "seg1_has_condition", "seg2_has_condition",
+                      "seg1_has_explanation", "seg2_has_explanation", 
+                      "seg1_has_adverb_of_emphasis", "seg2_has_adverb_of_emphasis",
+                      "seg1_has_justification", "seg2_has_justification", 
+                      "seg1_has_modal_verbs", "seg2_has_modal_verbs"),
+  #lexical_sim = c("tfidf_cosine_similarity"),
+  #semantic = c("cosine_similarity"),
+  structure = c("seg1_sentence_length_mean", "seg2_sentence_length_mean"),
+  #                     "seg1_n_tokens", "seg2_n_tokens"),
+  syntactic = c("seg1_dependency_distance_mean", "seg2_dependency_distance_mean",
+                "seg1_prop_adjacent_dependency_relation_mean", "seg2_prop_adjacent_dependency_relation_mean",
+                "seg1_avg_subclauses", "seg2_avg_subclauses",
+                "seg1_avg_tree_depth", "seg2_avg_tree_depth"),
+  #perplexity = c("seg1_perplexity", "seg2_perplexity", #"seg1_given_seg2_perplexity", 
+  #               "seg2_given_seg1_perplexity"),
+  #indirectness = c("seg1_impScore", "seg2_impScore", "prag_distance"),
+  sentiment = c("seg1_senti", "seg2_senti")
+)
+
+# Loop through them and test one-at-a-time addition
+block_refit_results <- map_df(names(blocks_dropped), function(b) {
+  predictors <- paste(blocks_dropped[[b]], collapse = " + ")
+  m_block <- update(model_att_con_interact_three_way_remove_marginal, paste(". ~ . +", predictors))
+  comp <- anova(model_att_con_interact_three_way_remove_marginal, m_block, test = "Chisq")
+  tibble(
+    block = b,
+    delta_AIC = AIC(model_att_con_interact_three_way_remove_marginal) - AIC(m_block),
+    LRT_p = comp$`Pr(>Chisq)`[2],
+    R2_marg_gain = performance::r2_nakagawa(m_block)$R2_marginal -
+                   performance::r2_nakagawa(model_att_con_interact_three_way_remove_marginal)$R2_marginal
+  )
+})
+
+block_refit_results
+```
+
+```{r}
+#summary(update(model_interact_three_way_refined, . ~ . + seg1_avg_tree_depth + seg2_avg_tree_depth))
+car::Anova(update(model_att_con_interact_three_way_remove_marginal, . ~ . + seg1_has_deduction 
+                                                + seg2_has_deduction
+                                                + seg1_has_refutation
+                                                + seg2_has_refutation 
+                                                + seg1_has_condition
+                                                + seg2_has_condition
+                                                + seg1_has_explanation + seg2_has_explanation
+                                                + seg1_has_adverb_of_emphasis + seg2_has_adverb_of_emphasis + seg1_has_justification + seg2_has_justification 
+                                                + seg1_has_modal_verbs + seg2_has_modal_verbs), type="III")
+```
+
+```{r}
+car::Anova(update(model_att_con_interact_three_way_remove_marginal, . ~ . + seg1_senti
+                                                         + seg2_senti), type="III")
+```
+
+```{r}
+car::Anova(update(model_att_con_interact_three_way_remove_marginal, . ~ . + seg1_dependency_distance_mean + seg2_dependency_distance_mean
+                 + seg1_prop_adjacent_dependency_relation_mean + seg2_prop_adjacent_dependency_relation_mean
+                 + seg1_avg_subclauses + seg2_avg_subclauses
+                 + seg1_avg_tree_depth + seg2_avg_tree_depth), type="III")
+```
+
+```{r}
+car::Anova(update(model_att_con_interact_three_way_remove_marginal , . ~ . + seg1_sentence_length_mean + seg2_sentence_length_mean), type="III")
+```
+
+```{r}
+model_final_expanded <- glmer(arg_nli_attack ~ (1|CorpusID) 
+                        + prag_distance * cosine_similarity
+                        + seg2_n_tokens
+                        + seg2_impScore
+                        #+ seg1_impScore * prag_distance
+                        + seg1_n_tokens
+                        + tfidf_cosine_similarity
+                        + seg2_given_seg1_perplexity * seg2_perplexity
+                        + seg2_given_seg1_perplexity * seg1_perplexity
+                        + tfidf_cosine_similarity * cosine_similarity * prag_distance
+                        + seg1_has_deduction
+                        + seg2_has_refutation
+                        + seg1_has_condition
+                        + seg2_has_condition
+                        + seg2_has_explanation
+                        + seg1_has_adverb_of_emphasis
+                        + seg2_has_adverb_of_emphasis
+                        + seg1_has_justification
+                        + seg2_has_justification
+                        + seg1_has_modal_verbs
+                        + seg2_has_modal_verbs
+                        + seg2_dependency_distance_mean
+                        + seg1_prop_adjacent_dependency_relation_mean
+                        + seg1_avg_subclauses
+                        + seg1_avg_tree_depth
+                        + seg1_senti
+                        , data = attack_clean_df, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+
+```
+
+```{r}
+library(car)
+anova(model_att_con_interact_three_way_remove_marginal, model_final_expanded, text="Chisq")
+performance::r2_nakagawa(model_att_con_interact_three_way_remove_marginal)
+performance::r2_nakagawa(model_final_expanded)
+car::Anova(model_final_expanded, type="III")
+performance::check_collinearity(model_final_expanded)
+```
+
+```{r}
+model_final_expanded_remove_marginal <- glmer(arg_nli_attack ~ (1|CorpusID) 
+                        + prag_distance * cosine_similarity
+                        + seg2_n_tokens
+                        + seg2_impScore
+                        #+ seg1_impScore * prag_distance
+                        + seg1_n_tokens
+                        + tfidf_cosine_similarity
+                        + seg2_given_seg1_perplexity * seg2_perplexity
+                        + seg2_given_seg1_perplexity * seg1_perplexity
+                        + tfidf_cosine_similarity * cosine_similarity * prag_distance
+                        + seg1_has_deduction
+                        + seg2_has_refutation
+                        + seg1_has_condition
+                        + seg2_has_condition
+                        + seg2_has_explanation
+                        + seg1_has_adverb_of_emphasis
+                        + seg2_has_adverb_of_emphasis
+                        + seg1_has_justification
+                        + seg2_has_justification
+                        #+ seg1_has_modal_verbs
+                        + seg2_has_modal_verbs
+                        + seg2_dependency_distance_mean
+                        + seg1_prop_adjacent_dependency_relation_mean * seg1_avg_tree_depth
+                        #+ seg1_avg_subclauses
+                        + seg1_senti
+                        , data = attack_clean_df, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+```{r}
+library(car)
+anova(model_att_con_interact_three_way_remove_marginal, model_final_expanded, model_final_expanded_remove_marginal, text="Chisq")
+performance::r2_nakagawa(model_final_expanded)
+performance::r2_nakagawa(model_final_expanded_remove_marginal)
+car::Anova(model_final_expanded_remove_marginal, type="III")
+performance::check_collinearity(model_final_expanded_remove_marginal)
+```
+
+```{r}
+model_final_expanded_remove_marginal_refined <- glmer(arg_nli_attack ~ (1|CorpusID) 
+                        + prag_distance #* cosine_similarity
+                        + seg2_n_tokens
+                        + seg2_impScore
+                        #+ seg1_impScore * prag_distance
+                        + seg1_n_tokens
+                        + tfidf_cosine_similarity
+                        + seg2_given_seg1_perplexity * seg2_perplexity
+                        + seg2_given_seg1_perplexity * seg1_perplexity
+                        + tfidf_cosine_similarity * cosine_similarity 
+                        #+ cos* prag_distance
+                        #+ seg1_has_deduction
+                        + seg2_has_refutation
+                        + seg1_has_condition
+                        + seg2_has_condition
+                        + seg2_has_explanation
+                        + seg1_has_adverb_of_emphasis
+                        + seg2_has_adverb_of_emphasis
+                        + seg1_has_justification
+                        + seg2_has_justification
+                        #+ seg1_has_modal_verbs
+                        + seg2_has_modal_verbs
+                        + seg2_dependency_distance_mean
+                        #+ seg1_prop_adjacent_dependency_relation_mean * seg1_avg_tree_depth
+                        #+ seg1_avg_subclauses
+                        + seg1_senti
+                        , data = attack_clean_df, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+```{r}
+library(car)
+anova(model_att_con_interact_three_way_remove_marginal, model_final_expanded, model_final_expanded_remove_marginal, model_final_expanded_remove_marginal_refined, text="Chisq")
+performance::r2_nakagawa(model_final_expanded)
+performance::r2_nakagawa(model_final_expanded_remove_marginal)
+performance::r2_nakagawa(model_final_expanded_remove_marginal_refined)
+car::Anova(model_final_expanded_remove_marginal_refined, type="III")
+performance::check_collinearity(model_final_expanded_remove_marginal_refined)
+```
+
+```{r}
+# --- This is your MAIN results table ---
+# It's simple, clean, and you already have it.
+library(car)
+model_significance <- car::Anova(model_final_expanded_remove_marginal_refined, type = "III")
+print(model_significance)
+
+# --- This table goes in your APPENDIX ---
+library(broom.mixed)
+appendix_table <- tidy(model_final_expanded_remove_marginal_refined,
+                       effects = "fixed",
+                       exponentiate = TRUE,
+                       conf.int = TRUE)
+
+print(appendix_table)
+
+# --- This is the ONE-LINE solution ---
+library(sjPlot)
+
+# This command creates a beautiful, publication-ready
+# HTML table right in your RStudio viewer.
+tab_model(
+  model_final_expanded_remove_marginal_refined, 
+  dv.labels = "Predicting Entailment (is_attackt = 1)",
+  p.style = "scientific"
+)
+```
+
+```{r}
+# --- Load necessary libraries ---
+library(lme4)         # For glmer
+library(broom.mixed)  # For tidy()
+library(car)          # For Anova()
+library(dplyr)        # For data manipulation (joining and cleaning)
+library(tibble)       # For rownames_to_column()
+
+# --- 1. Get Estimates, ORs, and CIs from tidy() ---
+# We need to run tidy() twice:
+# First, to get the raw log-odds (b) and Standard Error (SE)
+model_estimates <- tidy(model_final_expanded_remove_marginal_refined,
+                        effects = "fixed",
+                        conf.int = FALSE) %>%
+  select(term, b = estimate, std.error)
+
+# Second, to get the exponentiated Odds Ratios (OR) and 95% CIs
+model_ors <- tidy(model_final_expanded_remove_marginal_refined,
+                  effects = "fixed",
+                  exponentiate = TRUE,
+                  conf.int = TRUE) %>%
+  select(term, OR = estimate, conf.low, conf.high)
+
+# --- 2. Get Significance (Chisq and p-value) from Anova() ---
+# This is the more robust test for predictor significance
+model_significance <- car::Anova(model_final_expanded_remove_marginal_refined, type = "III")
+
+# Convert the Anova output to a clean data frame
+significance_df <- as.data.frame(model_significance) %>%
+  rownames_to_column("term") %>%
+  select(term, Chisq, `p.value` = `Pr(>Chisq)`)
+
+# --- 3. Join All Pieces Together ---
+publication_table <- model_estimates %>%
+  # Join with the Odds Ratios
+  left_join(model_ors, by = "term") %>%
+  # Join with the significance stats
+  left_join(significance_df, by = "term") %>%
+  
+  # --- 4. Clean and Format for the Paper ---
+  
+  # Add a "Pretty Name" column (YOU MUST CUSTOMIZE THIS)
+  mutate(Predictor = case_when(
+    term == "(Intercept)" ~ "Intercept",
+    term == "cosine_similarity" ~ "Semantic Similarity (Cosine)",
+    term == "tfidf_cosine_similarity" ~ "Lexical Similarity (TF-IDF)",
+    term == "seg2_given_seg1_perplexity" ~ "Conditional Perplexity (S2|S1)",
+    term == "prag_distance" ~ "Pragmatic Distance",
+    term == "seg2_impScore" ~ "Indirectness (Seg 2)",
+    term == "seg1_perplexity" ~ "Perplexity (Seg 1)",
+    term == "seg2_perplexity" ~ "Perplexity (Seg 2)",
+    term == "seg2_n_tokens" ~ "Length (Seg 2 Tokens)",
+    term == "seg1_senti" ~ "Sentiment (Seg 1)",
+    term == "seg2_senti" ~ "Sentiment (Seg 2)",
+    term == "seg2_has_deduction" ~ "Marker: Deduction (Seg2)",
+    term == "seg1_has_refutation" ~ "Marker: Refutation (Seg 1)",
+    term == "seg2_has_refutation" ~ "Marker: Refutation (Seg 2)",
+    term == "seg1_has_justification" ~ "Marker: Justification (Seg 1)",
+    term == "seg2_has_justification" ~ "Marker: Justification (Seg 2)",
+    term == "seg2_has_adverb_of_emphasis " ~ "Marker: Adv of Emphasis (Seg 1)",
+    term == "seg1_has_condition" ~ "Marker: Condition (Seg 1)",
+    term == "seg1_has_modal_verbs" ~ "Marker: Modal (Seg 1)",
+    term == "seg2_has_modal_verbs" ~ "Marker: Modal (Seg 2)",
+    term == "seg2_dependency_distance_mean" ~ "Dependency Distance Mean (Seg 2)",
+    term == "seg1_impScore" ~ "Indirectness (Seg 2)",
+    # Interactions (indented for readability)
+    term == "cosine_similarity:tfidf_cosine_similarity" ~ "  Sem. x Lex. Similarity",
+    term == "cosine_similarity:seg2_given_seg1_perplexity" ~ "  Sem. Sim. x Cond. Perplexity",
+    term == "prag_distance:seg2_impScore" ~ "  Prag. Dist. x Indirectness (S2)",
+    term == "seg2_given_seg1_perplexity:seg1_perplexity" ~ "  Cond. Perp. x Perp. (S1)",
+    term == "seg2_given_seg1_perplexity:seg2_perplexity" ~ "  Cond. Perp. x Perp. (S2)",
+    term == "tfidf_cosine_similarity:seg2_given_seg1_perplexity" ~ "  Lex. Sim. x Cond. Perplexity",
+    term == "cosine_similarity:tfidf_cosine_similarity:seg2_given_seg1_perplexity" ~ "  Sem. x Lex. x Cond. Perplexity",
+    term == "seg2_avg_subclauses:seg2_dependency_distance_mean" ~ "Avg subclauses (S2) x Dependency distance Mean (S2)",
+    term == "seg2_avg_subclauses:seg2_avg_tree_depth" ~ "Avg subclauses (S2) x Avg tree depth (S2)",
+    term == "seg1_avg_tree_depth:seg1_dependency_distance_mean" ~ "Avg tree depth (S1) x Dependency distance mean (S1)",
+    term == "seg2_dependency_distance_mean:seg2_avg_tree_depth" ~ "Dependency Distance Mean (S2) x Cond. Perplexity",
+    TRUE ~ term # Fallback for any I missed
+  )) %>%
+  
+  # Create the single 95% CI column
+  mutate(`95% CI` = paste0("[", round(conf.low, 3), ", ", round(conf.high, 3), "]")) %>%
+  
+  # Select and rename the final columns to be publication-ready
+  select(
+    `Predictor` = Predictor,
+    `$b$` = b,
+    `SE` = std.error,
+    `Odds Ratio` = OR,
+    `95% CI`,
+    `$\\chi^2$` = Chisq,
+    `p-value` = p.value
+  )
+
+# --- 5. View Your Final Table ---
+# You can now print this or use a package like 'knitr' or 'gt' to make it beautiful
+print(publication_table, n = 30) # Print all rows
+```

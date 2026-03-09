@@ -1,0 +1,670 @@
+---
+title: "compar_hard_soft_threshold"
+author: "Henrike Beyer"
+date: "2025-11-12"
+output: html_document
+---
+
+```{r}
+library(lme4)
+library(broom.mixed)
+library(dplyr)
+```
+
+
+# Read in data
+
+```{r}
+hard_threshold <- read.csv("D:\\OneDrive - University of Dundee\\PhD\\ARG-NLI_project\\feature_analysis\\automatic\\new_features\\corpus_threshold_hard_0.999_standardised_log_scaled_cleaned.csv")
+
+soft_threshold <- read.csv("D:\\OneDrive - University of Dundee\\PhD\\ARG-NLI_project\\feature_analysis\\automatic\\new_features\\corpus_threshold_soft_0.999_standardised_and_log_scaled_cleaned.csv")
+
+factor_vars <- c(
+  "seg1_has_deduction", "seg2_has_deduction",
+  "seg1_has_refutation", "seg2_has_refutation", 
+  "seg1_has_condition", "seg2_has_condition",
+  "seg1_has_explanation", "seg2_has_explanation", 
+  "seg1_has_adverb_of_emphasis", "seg2_has_adverb_of_emphasis",
+  "seg1_has_justification", "seg2_has_justification", 
+  "seg1_has_modal_verbs", "seg2_has_modal_verbs",
+  "seg1_senti", "seg2_senti"
+)
+
+hard_threshold[factor_vars] <- lapply(hard_threshold[factor_vars], function(x) as.factor(as.character(x)))
+soft_threshold[factor_vars] <- lapply(soft_threshold[factor_vars], function(x) as.factor(as.character(x)))
+
+```
+
+
+```{r}
+
+# Drop rows with any missing values
+hard_threshold_complete <- hard_threshold[complete.cases(hard_threshold), ]
+soft_threshold_complete <- soft_threshold[complete.cases(soft_threshold), ]
+
+```
+
+```{r}
+support_only_hard <- hard_threshold_complete %>% filter(is_support == 1)
+support_only_hard$CorpusID <- as.factor(support_only_hard$CorpusID)
+
+# From your support-only data,
+# select only the columns needed for the model,
+# and then drop any row that has an NA in ANY of those columns.
+# support_clean_hard <- support_only_hard %>%
+#   select(all_of(all_vars)) %>%
+#  na.omit()
+
+# Check the before and after (optional, but good)
+message("Rows in support_only_df: ", nrow(support_only_hard))
+# message("Rows in support_clean_df (after removing NAs): ", nrow(support_clean_hard))
+```
+
+```{r}
+attack_only_hard <- hard_threshold_complete %>% filter(is_attack == 1)
+attack_only_hard$CorpusID <- as.factor(attack_only_hard$CorpusID)
+
+# From your support-only data,
+# select only the columns needed for the model,
+# and then drop any row that has an NA in ANY of those columns.
+#attack_clean_hard <- attack_only_hard %>%
+#  select(all_of(all_vars)) %>%
+#  na.omit()
+
+# Check the before and after (optional, but good)
+message("Rows in support_only_df: ", nrow(attack_only_hard))
+#message("Rows in support_clean_df (after removing NAs): ", nrow(attack_clean_hard))
+```
+
+```{r}
+support_only_soft <- soft_threshold_complete %>% filter(is_support == 1)
+support_only_soft$CorpusID <- as.factor(support_only_soft$CorpusID)
+
+# From your support-only data,
+# select only the columns needed for the model,
+# and then drop any row that has an NA in ANY of those columns.
+# support_clean_soft <- support_only_soft %>%
+#   select(all_of(all_vars)) %>%
+#   na.omit()
+
+# Check the before and after (optional, but good)
+message("Rows in support_only_df: ", nrow(support_only_soft))
+# message("Rows in support_clean_df (after removing NAs): ", nrow(support_clean_soft))
+```
+
+```{r}
+attack_only_soft <- soft_threshold_complete %>% filter(is_attack == 1)
+attack_only_soft$CorpusID <- as.factor(attack_only_soft$CorpusID)
+
+# From your support-only data,
+# select only the columns needed for the model,
+# and then drop any row that has an NA in ANY of those columns.
+# attack_clean_soft <- attack_only_soft %>%
+#   select(all_of(all_vars)) %>%
+#   na.omit()
+
+# Check the before and after (optional, but good)
+message("Rows in support_only_df: ", nrow(attack_only_soft))
+# message("Rows in support_clean_df (after removing NAs): ", nrow(attack_clean_soft))
+```
+
+# Entailment Model
+```{r entailment model hard}
+model_final_entailment_hard <- glmer(
+  is_entailment ~ (1 | CorpusID) 
+  + cosine_similarity * tfidf_cosine_similarity 
+  * seg2_given_seg1_perplexity #* cosine_similarity 
+  + prag_distance * seg2_impScore 
+  + seg2_given_seg1_perplexity * seg1_perplexity 
+  + seg2_given_seg1_perplexity * seg2_perplexity 
+  + seg2_n_tokens #* seg2_sentence_length_mean 
+  #+ seg2_n_tokens * seg2_avg_tree_depth 
+  #+ seg2_sentence_length_mean * seg2_avg_tree_depth 
+  #+ seg1_sentence_length_mean * seg1_avg_tree_depth
+  + seg1_senti 
+  + seg2_senti 
+  + seg2_has_refutation 
+  + seg1_has_condition
+  + seg1_has_modal_verbs
+  + seg2_has_modal_verbs
+  , data = hard_threshold_complete,
+  family = binomial,
+  control = glmerControl(optimizer = "bobyqa")
+)
+```
+
+
+```{r entailment model on soft threshold data}
+model_final_entailment_soft <- glmer(
+  is_entailment ~ (1 | CorpusID) 
+  + cosine_similarity * tfidf_cosine_similarity 
+  * seg2_given_seg1_perplexity #* cosine_similarity 
+  + prag_distance * seg2_impScore 
+  + seg2_given_seg1_perplexity * seg1_perplexity 
+  + seg2_given_seg1_perplexity * seg2_perplexity 
+  + seg2_n_tokens #* seg2_sentence_length_mean 
+  #+ seg2_n_tokens * seg2_avg_tree_depth 
+  #+ seg2_sentence_length_mean * seg2_avg_tree_depth 
+  #+ seg1_sentence_length_mean * seg1_avg_tree_depth
+  + seg1_senti 
+  + seg2_senti 
+  + seg2_has_refutation 
+  + seg1_has_condition
+  + seg1_has_modal_verbs
+  + seg2_has_modal_verbs
+  , data = soft_threshold_complete,
+  family = binomial,
+  control = glmerControl(optimizer = "bobyqa")
+)
+```
+
+```{r}
+#anova(model_final_entailment_hard, model_final_entailment_soft, test="Chisq")
+
+performance::r2_nakagawa(model_final_entailment_hard)
+performance::r2_nakagawa(model_final_entailment_soft)
+
+print("ANOVA entailment hard")
+car::Anova(model_final_entailment_hard)
+
+print("ANOVA entailment soft")
+car::Anova(model_final_entailment_soft)
+```
+
+
+# Contradiction Model
+```{r contradiction model hard}
+model_final_contradiction_hard <- glmer(is_contradiction ~ (1|CorpusID) 
+                        + cosine_similarity * tfidf_cosine_similarity
+                        #+ tfidf_cosine_similarity * seg2_given_seg1_perplexity
+                        + cosine_similarity * prag_distance
+                        + cosine_similarity * seg2_given_seg1_perplexity
+                        #+ prag_distance * seg2_given_seg1_perplexity
+                        #+ seg2_given_seg1_perplexity * seg1_perplexity 
+                        #+ seg2_given_seg1_perplexity * seg2_perplexity
+                        + seg2_n_tokens * seg2_dependency_distance_mean
+                        + seg1_n_tokens #* seg2_given_seg1_perplexity
+                        #+ prag_distance * seg1_impScore
+                        + prag_distance * seg2_impScore
+                        #+ seg1_impScore
+                        #+ seg2_impScore
+                        #+ tfidf_cosine_similarity
+                        + seg1_senti
+                        + seg2_senti
+                        #+ seg1_avg_tree_depth
+                        #+ seg1_dependency_distance_mean
+                        + seg2_prop_adjacent_dependency_relation_mean
+                        #+ seg1_sentence_length_mean
+                        #+ seg2_sentence_length_mean
+                        + seg2_has_refutation
+                        #+ seg1_has_condition
+                        + seg2_has_condition
+                        #+ seg2_has_explanation
+                        #+ seg1_has_adverb_of_emphasis
+                        #+ seg2_has_adverb_of_emphasis
+                        + seg1_has_justification
+                        + seg2_has_justification
+                        + seg1_has_modal_verbs
+                        , data = hard_threshold_complete, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+
+```{r contradiction model on soft threshold data}
+model_final_contradiction_soft <- glmer(is_contradiction ~ (1|CorpusID) 
+                        + cosine_similarity * tfidf_cosine_similarity
+                        #+ tfidf_cosine_similarity * seg2_given_seg1_perplexity
+                        + cosine_similarity * prag_distance
+                        + cosine_similarity * seg2_given_seg1_perplexity
+                        #+ prag_distance * seg2_given_seg1_perplexity
+                        #+ seg2_given_seg1_perplexity * seg1_perplexity 
+                        #+ seg2_given_seg1_perplexity * seg2_perplexity
+                        + seg2_n_tokens * seg2_dependency_distance_mean
+                        + seg1_n_tokens #* seg2_given_seg1_perplexity
+                        #+ prag_distance * seg1_impScore
+                        + prag_distance * seg2_impScore
+                        #+ seg1_impScore
+                        #+ seg2_impScore
+                        #+ tfidf_cosine_similarity
+                        + seg1_senti
+                        + seg2_senti
+                        #+ seg1_avg_tree_depth
+                        #+ seg1_dependency_distance_mean
+                        + seg2_prop_adjacent_dependency_relation_mean
+                        #+ seg1_sentence_length_mean
+                        #+ seg2_sentence_length_mean
+                        + seg2_has_refutation
+                        #+ seg1_has_condition
+                        + seg2_has_condition
+                        #+ seg2_has_explanation
+                        #+ seg1_has_adverb_of_emphasis
+                        #+ seg2_has_adverb_of_emphasis
+                        + seg1_has_justification
+                        + seg2_has_justification
+                        + seg1_has_modal_verbs
+                        , data = soft_threshold_complete, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+```{r}
+#anova(model_final_entailment_hard, model_final_entailment_soft, test="Chisq")
+
+performance::r2_nakagawa(model_final_contradiction_hard)
+performance::r2_nakagawa(model_final_contradiction_soft)
+
+print("ANOVA contradiction hard")
+car::Anova(model_final_contradiction_hard)
+
+print("ANOVA contradiction soft")
+car::Anova(model_final_contradiction_soft)
+```
+
+# Neutral Model
+```{r neutral model hard}
+model_final_neutral_hard <- glmer(is_neutral ~ (1|CorpusID) 
+                        + cosine_similarity * tfidf_cosine_similarity
+                        #+ tfidf_cosine_similarity * seg2_given_seg1_perplexity
+                        + cosine_similarity * prag_distance
+                        + cosine_similarity * seg2_given_seg1_perplexity
+                        #+ prag_distance * seg2_given_seg1_perplexity
+                        #+ seg2_given_seg1_perplexity * seg1_perplexity 
+                        #+ seg2_given_seg1_perplexity * seg2_perplexity
+                        + seg2_n_tokens * seg2_dependency_distance_mean
+                        + seg1_n_tokens #* seg2_given_seg1_perplexity
+                        #+ prag_distance * seg1_impScore
+                        # + prag_distance 
+                        + seg2_impScore
+                        #+ seg1_impScore
+                        #+ seg2_impScore
+                        #+ tfidf_cosine_similarity
+                        # + seg1_senti
+                        + seg2_senti
+                        #+ seg1_avg_tree_depth
+                        #+ seg1_dependency_distance_mean
+                        # + seg2_prop_adjacent_dependency_relation_mean
+                        #+ seg1_sentence_length_mean
+                        #+ seg2_sentence_length_mean
+                        + seg2_has_refutation
+                        #+ seg1_has_condition
+                        + seg2_has_condition
+                        #+ seg2_has_explanation
+                        #+ seg1_has_adverb_of_emphasis
+                        #+ seg2_has_adverb_of_emphasis
+                        + seg1_has_justification
+                        + seg2_has_justification
+                        # + seg1_has_modal_verbs
+                        , data = hard_threshold_complete, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+
+
+```
+
+
+```{r neutral model on soft threshold data}
+model_final_neutral_soft <- glmer(is_neutral ~ (1|CorpusID) 
+                        + cosine_similarity * tfidf_cosine_similarity
+                        #+ tfidf_cosine_similarity * seg2_given_seg1_perplexity
+                        + cosine_similarity * prag_distance
+                        + cosine_similarity * seg2_given_seg1_perplexity
+                        #+ prag_distance * seg2_given_seg1_perplexity
+                        #+ seg2_given_seg1_perplexity * seg1_perplexity 
+                        #+ seg2_given_seg1_perplexity * seg2_perplexity
+                        + seg2_n_tokens * seg2_dependency_distance_mean
+                        + seg1_n_tokens #* seg2_given_seg1_perplexity
+                        #+ prag_distance * seg1_impScore
+                        # + prag_distance 
+                        + seg2_impScore
+                        #+ seg1_impScore
+                        #+ seg2_impScore
+                        #+ tfidf_cosine_similarity
+                        # + seg1_senti
+                        + seg2_senti
+                        #+ seg1_avg_tree_depth
+                        #+ seg1_dependency_distance_mean
+                        # + seg2_prop_adjacent_dependency_relation_mean
+                        #+ seg1_sentence_length_mean
+                        #+ seg2_sentence_length_mean
+                        + seg2_has_refutation
+                        #+ seg1_has_condition
+                        + seg2_has_condition
+                        #+ seg2_has_explanation
+                        #+ seg1_has_adverb_of_emphasis
+                        #+ seg2_has_adverb_of_emphasis
+                        + seg1_has_justification
+                        + seg2_has_justification
+                        # + seg1_has_modal_verbs
+                        , data = soft_threshold_complete, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+```{r}
+#anova(model_final_entailment_hard, model_final_entailment_soft, test="Chisq")
+
+performance::r2_nakagawa(model_final_neutral_hard)
+performance::r2_nakagawa(model_final_neutral_soft)
+
+print("ANOVA neutral hard")
+car::Anova(model_final_neutral_hard)
+
+print("ANOVA neutral soft")
+car::Anova(model_final_neutral_soft)
+```
+
+# Support Model
+```{r support model hard}
+model_final_support_hard <- glmer(is_support ~ (1|CorpusID) 
+                        #+ seg2_n_tokens
+                        + seg2_has_deduction
+                        + seg1_has_refutation
+                        + seg2_has_refutation
+                        + seg1_has_condition
+                        #+ seg2_has_condition
+                        + seg2_has_adverb_of_emphasis
+                        + seg1_has_justification
+                        + seg2_has_justification
+                        #+ seg2_has_modal_verbs
+                        + seg2_senti
+                        #+ seg1_n_tokens
+                        #+ seg1_dependency_distance_mean
+                        #+ seg2_dependency_distance_mean
+                        + seg2_avg_subclauses *	seg2_dependency_distance_mean
+                        #+ seg1_prop_adjacent_dependency_relation_mean
+                        + seg2_prop_adjacent_dependency_relation_mean
+                        + seg2_avg_subclauses * seg2_avg_tree_depth
+                        + seg1_avg_tree_depth *	seg1_dependency_distance_mean
+                        #+ seg1_avg_tree_depth
+                        #+ tfidf_cosine_similarity
+                        + seg1_perplexity 
+                        + seg2_given_seg1_perplexity
+                        #+ seg2_perplexity * seg2_given_seg1_perplexity
+                        #+ cosine_similarity 
+                        + tfidf_cosine_similarity
+                        + seg1_impScore
+                        + seg2_impScore
+                        + prag_distance * cosine_similarity
+                        , data = hard_threshold_complete, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+
+```{r support model on soft threshold data}
+model_final_support_soft <- glmer(is_support ~ (1|CorpusID) 
+                        #+ seg2_n_tokens
+                        + seg2_has_deduction
+                        + seg1_has_refutation
+                        + seg2_has_refutation
+                        + seg1_has_condition
+                        #+ seg2_has_condition
+                        + seg2_has_adverb_of_emphasis
+                        + seg1_has_justification
+                        + seg2_has_justification
+                        #+ seg2_has_modal_verbs
+                        + seg2_senti
+                        #+ seg1_n_tokens
+                        #+ seg1_dependency_distance_mean
+                        #+ seg2_dependency_distance_mean
+                        + seg2_avg_subclauses *	seg2_dependency_distance_mean
+                        #+ seg1_prop_adjacent_dependency_relation_mean
+                        + seg2_prop_adjacent_dependency_relation_mean
+                        + seg2_avg_subclauses * seg2_avg_tree_depth
+                        + seg1_avg_tree_depth *	seg1_dependency_distance_mean
+                        #+ seg1_avg_tree_depth
+                        #+ tfidf_cosine_similarity
+                        + seg1_perplexity 
+                        + seg2_given_seg1_perplexity
+                        #+ seg2_perplexity * seg2_given_seg1_perplexity
+                        #+ cosine_similarity 
+                        + tfidf_cosine_similarity
+                        + seg1_impScore
+                        + seg2_impScore
+                        + prag_distance * cosine_similarity
+                        , data = soft_threshold_complete, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+```{r}
+#anova(model_final_entailment_hard, model_final_entailment_soft, test="Chisq")
+
+performance::r2_nakagawa(model_final_support_hard)
+performance::r2_nakagawa(model_final_support_soft)
+
+print("ANOVA support hard")
+car::Anova(model_final_support_hard)
+
+print("ANOVA support soft")
+car::Anova(model_final_support_soft)
+```
+
+# Attack Model
+```{r attack model hard}
+model_final_attack_hard <- glmer(is_attack ~ (1|CorpusID) 
+                        #+ seg2_n_tokens
+                        + seg2_has_deduction
+                        + seg1_has_refutation
+                        + seg2_has_refutation
+                        + seg1_has_condition
+                        #+ seg2_has_condition
+                        + seg2_has_adverb_of_emphasis
+                        + seg1_has_justification
+                        + seg2_has_justification
+                        #+ seg2_has_modal_verbs
+                        + seg2_senti
+                        #+ seg1_n_tokens
+                        #+ seg1_dependency_distance_mean
+                        #+ seg2_dependency_distance_mean
+                        + seg2_avg_subclauses *	seg2_dependency_distance_mean * seg2_avg_tree_depth
+                        #+ seg1_prop_adjacent_dependency_relation_mean
+                        + seg2_prop_adjacent_dependency_relation_mean
+                        #+ seg2_avg_subclauses * seg2_avg_tree_depth
+                        + seg1_avg_tree_depth *	seg1_dependency_distance_mean
+                        #+ seg2_avg_tree_depth *	seg2_dependency_distance_mean
+                        #+ seg1_avg_tree_depth
+                        + tfidf_cosine_similarity
+                        + seg1_perplexity
+                        #+ seg2_perplexity
+                        + seg2_given_seg1_perplexity
+                        + cosine_similarity
+                        + seg1_impScore
+                        + seg2_impScore
+                        + prag_distance
+                        , data = hard_threshold_complete, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+
+```{r attack model on soft threshold data}
+model_final_attack_soft <- glmer(is_attack ~ (1|CorpusID) 
+                        #+ seg2_n_tokens
+                        + seg2_has_deduction
+                        + seg1_has_refutation
+                        + seg2_has_refutation
+                        + seg1_has_condition
+                        #+ seg2_has_condition
+                        + seg2_has_adverb_of_emphasis
+                        + seg1_has_justification
+                        + seg2_has_justification
+                        #+ seg2_has_modal_verbs
+                        + seg2_senti
+                        #+ seg1_n_tokens
+                        #+ seg1_dependency_distance_mean
+                        #+ seg2_dependency_distance_mean
+                        + seg2_avg_subclauses *	seg2_dependency_distance_mean * seg2_avg_tree_depth
+                        #+ seg1_prop_adjacent_dependency_relation_mean
+                        + seg2_prop_adjacent_dependency_relation_mean
+                        #+ seg2_avg_subclauses * seg2_avg_tree_depth
+                        + seg1_avg_tree_depth *	seg1_dependency_distance_mean
+                        #+ seg2_avg_tree_depth *	seg2_dependency_distance_mean
+                        #+ seg1_avg_tree_depth
+                        + tfidf_cosine_similarity
+                        + seg1_perplexity
+                        #+ seg2_perplexity
+                        + seg2_given_seg1_perplexity
+                        + cosine_similarity
+                        + seg1_impScore
+                        + seg2_impScore
+                        + prag_distance
+                        , data = soft_threshold_complete, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+```{r}
+#anova(model_final_entailment_hard, model_final_entailment_soft, test="Chisq")
+
+performance::r2_nakagawa(model_final_attack_hard)
+performance::r2_nakagawa(model_final_attack_soft)
+
+print("ANOVA support hard")
+car::Anova(model_final_attack_hard)
+
+print("ANOVA support soft")
+car::Anova(model_final_attack_soft)
+```
+
+# Support is Entailment Model
+```{r support is entailment model hard}
+model_final_support_is_entailment_hard <- glmer(arg_nli_support ~ (1 | CorpusID)
+                              + prag_distance 
+                              + seg2_n_tokens 
+                              + seg2_impScore 
+                              + seg1_impScore 
+                              + tfidf_cosine_similarity 
+                              + seg2_given_seg1_perplexity 
+                              + seg2_perplexity 
+                              + seg1_perplexity 
+                              + cosine_similarity
+                              + seg2_has_deduction
+                              + seg2_has_refutation
+                              + seg1_has_condition
+                              + seg2_has_explanation
+                              #+ seg2_has_justification
+                              + seg1_has_modal_verbs
+                              + seg2_has_modal_verbs
+                              + seg1_dependency_distance_mean * seg1_avg_subclauses
+                              + seg2_dependency_distance_mean * seg2_avg_subclauses
+                              + seg1_prop_adjacent_dependency_relation_mean
+                              #+ seg1_avg_subclauses 
+                              + seg1_avg_tree_depth
+                              
+                              #+ seg2_avg_subclauses * seg2_avg_tree_depth
+                              #+ seg1_avg_tree_depth
+                              #+ seg2_avg_tree_depth
+                              #+ seg1_sentence_length_mean
+                              #+ seg2_sentence_length_mean 
+                        , data = support_only_hard, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+
+```
+
+
+```{r support is entailment model on soft threshold data}
+model_final_support_is_entailment_soft <- glmer(arg_nli_support ~ (1 | CorpusID)
+                              + prag_distance 
+                              + seg2_n_tokens 
+                              + seg2_impScore 
+                              + seg1_impScore 
+                              + tfidf_cosine_similarity 
+                              + seg2_given_seg1_perplexity 
+                              + seg2_perplexity 
+                              + seg1_perplexity 
+                              + cosine_similarity
+                              + seg2_has_deduction
+                              + seg2_has_refutation
+                              + seg1_has_condition
+                              + seg2_has_explanation
+                              #+ seg2_has_justification
+                              + seg1_has_modal_verbs
+                              + seg2_has_modal_verbs
+                              + seg1_dependency_distance_mean * seg1_avg_subclauses
+                              + seg2_dependency_distance_mean * seg2_avg_subclauses
+                              + seg1_prop_adjacent_dependency_relation_mean
+                              #+ seg1_avg_subclauses 
+                              + seg1_avg_tree_depth
+                              
+                              #+ seg2_avg_subclauses * seg2_avg_tree_depth
+                              #+ seg1_avg_tree_depth
+                              #+ seg2_avg_tree_depth
+                              #+ seg1_sentence_length_mean
+                              #+ seg2_sentence_length_mean 
+                        , data = support_only_soft, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+```{r}
+#anova(model_final_entailment_hard, model_final_entailment_soft, test="Chisq")
+
+performance::r2_nakagawa(model_final_support_is_entailment_hard)
+performance::r2_nakagawa(model_final_support_is_entailment_soft)
+
+print("ANOVA entailment hard")
+car::Anova(model_final_support_is_entailment_hard)
+
+summary(model_final_support_is_entailment_hard)
+
+print("ANOVA entailment soft")
+car::Anova(model_final_support_is_entailment_soft)
+```
+
+# Attack is contradiction Model
+```{r attack is contradiction model hard}
+model_final_attack_is_contradiction_hard <- glmer(arg_nli_attack ~ (1|CorpusID) 
+                        + prag_distance #* cosine_similarity
+                        + seg2_n_tokens
+                        + seg2_impScore
+                        #+ seg1_impScore * prag_distance
+                        + seg1_n_tokens
+                        + tfidf_cosine_similarity
+                        + seg2_given_seg1_perplexity * seg2_perplexity
+                        + seg2_given_seg1_perplexity * seg1_perplexity
+                        + tfidf_cosine_similarity * cosine_similarity 
+                        #+ cos* prag_distance
+                        #+ seg1_has_deduction
+                        + seg2_has_refutation
+                        + seg1_has_condition
+                        + seg2_has_condition
+                        + seg2_has_explanation
+                        + seg1_has_adverb_of_emphasis
+                        + seg2_has_adverb_of_emphasis
+                        + seg1_has_justification
+                        + seg2_has_justification
+                        #+ seg1_has_modal_verbs
+                        + seg2_has_modal_verbs
+                        + seg2_dependency_distance_mean
+                        #+ seg1_prop_adjacent_dependency_relation_mean * seg1_avg_tree_depth
+                        #+ seg1_avg_subclauses
+                        + seg1_senti
+                        , data = attack_only_hard, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+
+```{r attack is contradiction model on soft threshold data}
+model_final_attack_is_contradiction_soft <- glmer(arg_nli_attack ~ (1|CorpusID) 
+                        + prag_distance #* cosine_similarity
+                        + seg2_n_tokens
+                        + seg2_impScore
+                        #+ seg1_impScore * prag_distance
+                        + seg1_n_tokens
+                        + tfidf_cosine_similarity
+                        + seg2_given_seg1_perplexity * seg2_perplexity
+                        + seg2_given_seg1_perplexity * seg1_perplexity
+                        + tfidf_cosine_similarity * cosine_similarity 
+                        #+ cos* prag_distance
+                        #+ seg1_has_deduction
+                        + seg2_has_refutation
+                        + seg1_has_condition
+                        + seg2_has_condition
+                        + seg2_has_explanation
+                        + seg1_has_adverb_of_emphasis
+                        + seg2_has_adverb_of_emphasis
+                        + seg1_has_justification
+                        + seg2_has_justification
+                        #+ seg1_has_modal_verbs
+                        + seg2_has_modal_verbs
+                        + seg2_dependency_distance_mean
+                        #+ seg1_prop_adjacent_dependency_relation_mean * seg1_avg_tree_depth
+                        #+ seg1_avg_subclauses
+                        + seg1_senti
+                        , data = attack_only_soft, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+```{r}
+#anova(model_final_entailment_hard, model_final_entailment_soft, test="Chisq")
+
+performance::r2_nakagawa(model_final_attack_is_contradiction_hard)
+performance::r2_nakagawa(model_final_attack_is_contradiction_soft)
+
+print("ANOVA entailment hard")
+car::Anova(model_final_attack_is_contradiction_hard)
+
+print("ANOVA entailment soft")
+car::Anova(model_final_attack_is_contradiction_soft)
+```

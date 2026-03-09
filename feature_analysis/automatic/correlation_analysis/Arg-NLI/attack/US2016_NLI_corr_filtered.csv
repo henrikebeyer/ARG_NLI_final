@@ -1,6 +1,3 @@
-,0
-cosine_miniLM,0.46355464467411656
-jaccard_sim,0.43315909960921606
-seg2_pos_prop_PROPN,0.11914885355662479
-seg1_n_sentences,-0.10544512768421696
-joint_first_order_coherence,0.26879818134021904
+version https://git-lfs.github.com/spec/v1
+oid sha256:042c8708364da2c20e6b7e72befa9a8200b7ec965df0271f4a3e1b99a384799e
+size 195

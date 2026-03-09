@@ -1,0 +1,1090 @@
+---
+title: "ARG-NLI Data Analysis Hard Threshold"
+output: html_notebook
+---
+```{r}
+library(lme4)
+library(broom.mixed)
+library(dplyr)
+```
+
+# Data Loading and Preparation
+
+In this section, we load in the data, transform all relevant character vectors to factors, and clean up NAs in the data.
+
+```{r read Data}
+hard_threshold <- read.csv("D:\\OneDrive - University of Dundee\\PhD\\ARG-NLI_project\\feature_analysis\\automatic\\new_features\\corpus_threshold_hard_0.999_standardised_and_log_scaled.csv")
+
+```
+
+```{r transform character vectors to factors}
+factor_vars <- c(
+  "seg1_has_deduction", "seg2_has_deduction",
+  "seg1_has_refutation", "seg2_has_refutation", 
+  "seg1_has_condition", "seg2_has_condition",
+  "seg1_has_explanation", "seg2_has_explanation", 
+  "seg1_has_adverb_of_emphasis", "seg2_has_adverb_of_emphasis",
+  "seg1_has_justification", "seg2_has_justification", 
+  "seg1_has_modal_verbs", "seg2_has_modal_verbs",
+  "seg1_senti", "seg2_senti", "CorpusID"
+)
+
+hard_threshold[factor_vars] <- lapply(hard_threshold[factor_vars], function(x) as.factor(as.character(x)))
+```
+
+
+```{r define outcomes}
+is_entailment <- "is_entailment"
+is_contradiction <- "is_contradiction"
+is_neutral <- "is_neutral"
+is_support <- "is_support"
+is_attack <- "is_attack"
+support_is_entailment <- "arg_nli_support"
+attack_is_contradiction <- "arg_nli_attack"
+
+outcome <- is_contradiction
+```
+
+
+```{r clean up NAs}
+# Drop rows with any missing values
+hard_threshold_complete <- hard_threshold[complete.cases(hard_threshold), ]
+```
+
+# Step 1: Block model fitting
+In the first step, we split up the entire set of features into 8 linguistically motivated blocks and fit one model for each block that includes these features plus the number of tokens as a baseline feature. The gain in AIC is then compared for each block with the baseline model with the number of tokens as the only feature. Since we cannot guarantee that there is no interdependence introduced by the different corpora, the corpus is always used as a random effect.
+
+```{r define blocks}
+blocks <- list(
+  lexical_markers = c("seg1_has_deduction", "seg2_has_deduction",
+                      "seg1_has_refutation", "seg2_has_refutation", 
+                      "seg1_has_condition", "seg2_has_condition",
+                      "seg1_has_explanation", "seg2_has_explanation", 
+                      "seg1_has_adverb_of_emphasis", "seg2_has_adverb_of_emphasis",
+                      "seg1_has_justification", "seg2_has_justification", 
+                      "seg1_has_modal_verbs", "seg2_has_modal_verbs"),
+  lexical_sim = c("tfidf_cosine_similarity"),
+  semantic = c("cosine_similarity"),
+  structure = c("seg1_sentence_length_mean", "seg2_sentence_length_mean"),
+  #                     "seg1_n_tokens", "seg2_n_tokens"),
+  syntactic = c("seg1_dependency_distance_mean", "seg2_dependency_distance_mean",
+                "seg1_prop_adjacent_dependency_relation_mean", "seg2_prop_adjacent_dependency_relation_mean",
+                "seg1_avg_subclauses", "seg2_avg_subclauses",
+                "seg1_avg_tree_depth", "seg2_avg_tree_depth"),
+  perplexity = c("seg1_perplexity", "seg2_perplexity", #"seg1_given_seg2_perplexity", 
+                 "seg2_given_seg1_perplexity"),
+  indirectness = c("seg1_impScore", "seg2_impScore", "prag_distance"),
+  sentiment = c("seg1_senti", "seg2_senti")
+)
+
+interactions <- list(
+  c("seg1_avg_subclauses", "seg1_sentence_length_mean"),
+  c("seg2_avg_subclauses", "seg2_sentence_length_mean"),
+  c("seg1_avg_tree_depth", "seg1_avg_subclauses"),
+  c("seg2_avg_tree_depth", "seg2_avg_subclauses"),
+  c("seg1_avg_tree_depth", "seg1_sentence_length_mean"),
+  c("seg2_avg_tree_depth", "seg2_sentence_length_mean"),
+  c("seg1_dependency_distance_mean", "seg1_sentence_length_mean"),
+  c("seg2_sentence_length_mean", "seg2_dependency_distance_mean"),
+  c("seg1_dependency_distance_mean", "seg1_avg_subclauses"),
+  c("prag_distance", "cosine_similarity"),
+  c("tfidf_cosine_similarity", "cosine_similarity"),
+  c("seg2_dependency_distance_mean", "seg2_avg_subclauses"),
+  c("seg2_sentence_length_mean", "seg2_n_tokens"),
+  c("seg2_avg_subclauses", "seg2_n_tokens"),
+  c("seg1_avg_subclauses", "seg1_n_tokens"),
+  c("seg1_sentence_length_mean", "seg1_n_tokens"),
+  c("seg2_dependency_distance_mean", "seg2_n_tokens"),
+  c("tfidf_cosine_similarity", "prag_distance"),
+  c("seg1_avg_tree_depth", "seg1_dependency_distance_mean"),
+  c("seg2_avg_tree_depth", "seg2_n_tokens"),
+  c("seg1_dependency_distance_mean", "seg1_n_tokens"),
+  c("seg1_avg_tree_depth", "seg1_n_tokens"),
+  c("seg2_dependency_distance_mean", "seg2_prop_adjacent_dependency_relation_mean"),
+  c("seg1_prop_adjacent_dependency_relation_mean", "seg1_dependency_distance_mean")
+)
+
+```
+
+```{r helper variables to formula}
+vars_to_formula <- function(vars, interactions = NULL) {
+  f <- paste(vars, collapse = " + ")
+  if (!is.null(interactions) && length (interactions) > 0) {
+    int_terms <- sapply(interactions, function(x) paste(x, collapse = ":"))
+  }
+  f
+}
+```
+
+```{r block fitting function}
+fit_block_models_safe <- function(df, outcome, blocks, random = "(1 | CorpusID)",
+                                  base_controls = c("seg1_n_tokens", "seg2_n_tokens"),
+                                  family = binomial) {
+  library(lme4)
+  library(performance)
+  library(dplyr)
+  
+  models <- list()
+  results <- tibble()
+  
+  # baseline model
+  base_formula <- paste0(outcome, " ~ ", paste(base_controls, collapse = " + "), " + ", random)
+  message("Fitting baseline model: ", base_formula)
+  m_base <- glmer(as.formula(base_formula), data = df,
+                  family = family, control = glmerControl(optimizer = "bobyqa"))
+  models[["baseline"]] <- m_base
+  results <- bind_rows(results, tibble(
+    block = "baseline", AIC = AIC(m_base),
+    delta_AIC = NA, LRT = NA, p = NA, r2_marg = NA
+  ))
+  
+  # loop over blocks
+  for (b in names(blocks)) {
+    vars <- c(base_controls, blocks[[b]])
+    fstring <- paste0(outcome, " ~ ", paste(vars, collapse = " + "), " + ", random)
+    message("Fitting block-only model: ", b)
+    
+    m <- tryCatch(
+      glmer(as.formula(fstring), data = df, family = family,
+            control = glmerControl(optimizer = "bobyqa")),
+      error = function(e) { warning("Model failed for block ", b, ": ", e$message); return(NULL) }
+    )
+    
+    if (!is.null(m)) {
+      models[[b]] <- m
+      comp <- tryCatch(anova(m_base, m, test = "Chisq"), error = function(e) NULL)
+      r2 <- tryCatch(performance::r2_nakagawa(m)$R2_marginal, error = function(e) NA)
+      
+      row <- tibble(
+        block = b,
+        AIC = AIC(m),
+        delta_AIC = if (!is.null(comp)) AIC(m_base) - AIC(m) else NA,
+        LRT = if (!is.null(comp)) comp$Chisq[2] else NA,
+        p = if (!is.null(comp)) comp$`Pr(>Chisq)`[2] else NA,
+        r2_marg = r2
+      )
+      results <- bind_rows(results, row)
+    } else {
+      results <- bind_rows(results, tibble(
+        block = b, AIC = NA, delta_AIC = NA, LRT = NA, p = NA, r2_marg = NA
+      ))
+    }
+  }
+  
+  list(models = models, summary = results)
+}
+```
+
+
+```{r fit block models}
+block_results_contradiction <- fit_block_models_safe(hard_threshold_complete, outcome = outcome, blocks = blocks)
+
+block_results$summary %>%
+  arrange(AIC)  # smaller AIC = better fit
+```
+
+```{r}
+library(ggplot2)
+ggplot(block_results$summary[-1,], aes(x = reorder(block, -delta_AIC), y = delta_AIC)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(x = "Feature Block", y = "ΔAIC improvement over baseline",
+       title = "Relative contribution of feature blocks")
+```
+```{r}
+extract_block_details <- function(block_results) {
+  library(broom.mixed)
+  lapply(names(block_results$models), function(b) {
+    m <- block_results$models[[b]]
+    if (is.null(m)) return(NULL)
+    broom.mixed::tidy(m, effects = "fixed", conf.int = TRUE, exponentiate = TRUE) %>%
+      mutate(block = b)
+  }) %>% bind_rows() %>% filter(term != "(Intercept)")
+}
+```
+
+```{r}
+block_details <- extract_block_details(block_results)
+```
+
+```{r}
+library(car)
+car::Anova(block_results$models[["semantic"]])
+car::Anova(block_results$models[["lexical_sim"]])
+car::Anova(block_results$models[["semantic"]])
+car::Anova(block_results$models[["perplexity"]])
+```
+
+
+```{r}
+strong_blocks <- c("semantic", "indirectness", "lexical_sim", "perplexity")
+
+sig_features <- block_details %>%
+  filter(block %in% strong_blocks,
+         p.value < 0.05,
+         abs(estimate - 1) > 0.05) %>%
+  arrange(block, p.value) %>%
+  select(block, term, estimate, p.value, conf.low, conf.high)
+
+sig_features
+```
+
+```{r}
+cor(hard_threshold_complete[, unique(sig_features$term)], use = "pairwise.complete.obs")
+```
+
+
+```{r}
+final_features <- c(
+  "cosine_similarity",
+  "prag_distance",
+  "seg2_given_seg1_perplexity",
+  "seg2_n_tokens",
+  "seg1_n_tokens",
+  "seg1_perplexity",
+  "seg2_perplexity",
+  "seg1_impScore",
+  "seg2_impScore",
+  "tfidf_cosine_similarity"
+)
+
+f_final <- as.formula(
+  paste("is_contradiction ~", paste(final_features, collapse = " + "), "+ (1 | CorpusID)")
+)
+
+model_baseline_contradiction <-glmer(is_contradiction ~ (1|CorpusID) + seg1_n_tokens + seg2_n_tokens, data = hard_threshold_complete,
+                       family = binomial,
+                       control = glmerControl(optimizer = "bobyqa"))
+
+model_blocks_contradiction <- glmer(f_final, data = hard_threshold_complete,
+                     family = binomial,
+                     control = glmerControl(optimizer = "bobyqa"))
+```
+
+```{r}
+model_without_length_contradiction <- glmer(is_contradiction ~ (1|CorpusID) 
+                        + cosine_similarity 
+                        + prag_distance
+                        + seg2_given_seg1_perplexity 
+                        + seg1_perplexity 
+                        + seg2_perplexity
+                        #+ seg2_n_tokens
+                        #+ seg1_n_tokens
+                        + seg1_impScore
+                        + seg2_impScore
+                        + tfidf_cosine_similarity, 
+                        data = hard_threshold_complete, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+```{r}
+library(car)
+
+anova(model_baseline_contradiction, model_blocks_contradiction, model_without_length_contradiction, test = "Chisq")
+
+print("R2 model baseline")
+performance::r2_nakagawa(model_baseline_contradiction)
+print("R2 model final")
+performance::r2_nakagawa(model_blocks_contradiction)
+print("R2 without lenght")
+
+performance::r2_nakagawa(model_without_length_contradiction)
+vif(model_blocks_contradiction)
+vif(model_without_length_contradiction)
+```
+
+```{r}
+model_interact_perplexity_contradiction <-  glmer(is_contradiction ~ (1|CorpusID) 
+                        + cosine_similarity 
+                        + prag_distance
+                        + seg2_given_seg1_perplexity * seg1_perplexity 
+                        + seg2_given_seg1_perplexity * seg2_perplexity
+                        + seg2_n_tokens
+                        + seg1_n_tokens
+                        + seg1_impScore
+                        + seg2_impScore
+                        + tfidf_cosine_similarity, 
+                        data = hard_threshold_complete, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+```{r}
+library(car)
+
+anova(model_blocks_contradiction, model_interact_perplexity_contradiction, test = "Chisq")
+
+print("R2 model block features")
+performance::r2_nakagawa(model_blocks_contradiction)
+print("R2 perplexity")
+performance::r2_nakagawa(model_interact_perplexity_contradiction)
+
+```
+
+```{r}
+model_interact_tfidf_contradiction <- glmer(is_contradiction ~ (1|CorpusID) 
+                        + cosine_similarity * tfidf_cosine_similarity
+                        + prag_distance
+                        + seg2_given_seg1_perplexity 
+                        * seg1_perplexity 
+                        + seg2_given_seg1_perplexity 
+                        * seg2_perplexity
+                        + seg2_n_tokens
+                        + seg1_n_tokens
+                        + seg1_impScore
+                        + seg2_impScore
+                        #+ tfidf_cosine_similarity 
+                        , data = hard_threshold_complete, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+```{r}
+library(car)
+
+anova(model_interact_perplexity_contradiction, model_interact_tfidf_contradiction, test = "Chisq")
+
+print("R2 perplexity")
+performance::r2_nakagawa(model_interact_perplexity_contradiction)
+
+print("R2 interaction tfidf")
+performance::r2_nakagawa(model_interact_tfidf_contradiction)
+
+```
+
+
+```{r}
+model_interact_prag_contradiction <- glmer(is_contradiction ~ (1|CorpusID) 
+                        + cosine_similarity * tfidf_cosine_similarity
+                        + cosine_similarity * prag_distance
+                        #+ prag_distance
+                        + seg2_given_seg1_perplexity * seg1_perplexity 
+                        + seg2_given_seg1_perplexity * seg2_perplexity
+                        + seg2_n_tokens
+                        + seg1_n_tokens
+                        + seg1_impScore
+                        + seg2_impScore
+                        #+ tfidf_cosine_similarity 
+                        , data = hard_threshold_complete, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+```{r}
+library(car)
+
+anova(model_interact_tfidf_contradiction, model_interact_prag_contradiction, test = "Chisq")
+
+print("R2 interaction tfidf")
+performance::r2_nakagawa(model_interact_tfidf_contradiction)
+
+print("R2 interaction prag_distance")
+performance::r2_nakagawa(model_interact_prag_contradiction)
+
+```
+
+```{r}
+model_interact_prag_per_contradiction <- glmer(is_contradiction ~ (1|CorpusID) 
+                        + cosine_similarity * tfidf_cosine_similarity
+                        + cosine_similarity * prag_distance
+                        + prag_distance * seg2_given_seg1_perplexity
+                        + seg2_given_seg1_perplexity 
+                        * seg1_perplexity 
+                        + seg2_given_seg1_perplexity 
+                        * seg2_perplexity
+                        + seg2_n_tokens
+                        + seg1_n_tokens
+                        + seg1_impScore
+                        + seg2_impScore
+                        #+ tfidf_cosine_similarity 
+                        , data = hard_threshold_complete, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+```{r}
+library(car)
+
+anova(model_interact_prag_contradiction, model_interact_prag_per_contradiction, test = "Chisq")
+
+print("R2 interaction prag_distance")
+performance::r2_nakagawa(model_interact_prag_contradiction)
+
+print("R2 interaction prag x perplexity")
+performance::r2_nakagawa(model_interact_prag_per_contradiction)
+```
+
+```{r}
+model_interact_sem_per_contradiction <- glmer(is_contradiction ~ (1|CorpusID) 
+                        + cosine_similarity * tfidf_cosine_similarity
+                        + cosine_similarity * prag_distance
+                        + cosine_similarity * seg2_given_seg1_perplexity
+                        + prag_distance * seg2_given_seg1_perplexity
+                        + seg2_given_seg1_perplexity 
+                        * seg1_perplexity 
+                        + seg2_given_seg1_perplexity 
+                        * seg2_perplexity
+                        + seg2_n_tokens
+                        + seg1_n_tokens
+                        + seg1_impScore
+                        + seg2_impScore
+                        #+ tfidf_cosine_similarity
+                        , data = hard_threshold_complete, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+```{r}
+library(car)
+
+anova(model_interact_prag_contradiction, model_interact_sem_per_contradiction, test = "Chisq")
+
+print("R2 interaction prag_distance")
+performance::r2_nakagawa(model_interact_prag_contradiction)
+
+print("R2 interaction prag x perplexity")
+performance::r2_nakagawa(model_interact_sem_per_contradiction)
+```
+
+```{r}
+model_interact_tfidf_per_contradiction <- glmer(is_contradiction ~ (1|CorpusID) 
+                        + cosine_similarity * tfidf_cosine_similarity
+                        + tfidf_cosine_similarity * seg2_given_seg1_perplexity
+                        + cosine_similarity * prag_distance
+                        + cosine_similarity * seg2_given_seg1_perplexity
+                        + prag_distance * seg2_given_seg1_perplexity
+                        + seg2_given_seg1_perplexity 
+                        * seg1_perplexity 
+                        + seg2_given_seg1_perplexity 
+                        * seg2_perplexity
+                        + seg2_n_tokens
+                        + seg1_n_tokens
+                        + seg1_impScore
+                        + seg2_impScore
+                        #+ tfidf_cosine_similarity
+                        , data = hard_threshold_complete, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+```{r}
+library(car)
+
+anova(model_interact_sem_per_contradiction, model_interact_tfidf_per_contradiction, test = "Chisq")
+
+print("R2 interaction prag_distance")
+performance::r2_nakagawa(model_interact_sem_per_contradiction)
+
+print("R2 interaction tfidf x perplexity")
+performance::r2_nakagawa(model_interact_tfidf_per_contradiction)
+```
+
+
+```{r}
+model_interact_seg1_len_per_contradiction <- glmer(is_contradiction ~ (1|CorpusID)
+                        + cosine_similarity * tfidf_cosine_similarity
+                        #+ tfidf_cosine_similarity * seg2_given_seg1_perplexity
+                        + cosine_similarity * prag_distance
+                        + cosine_similarity * seg2_given_seg1_perplexity
+                        + prag_distance * seg2_given_seg1_perplexity
+                        + seg2_given_seg1_perplexity 
+                        * seg1_perplexity 
+                        + seg2_given_seg1_perplexity 
+                        * seg2_perplexity
+                        + seg2_n_tokens
+                        + seg1_n_tokens * seg2_given_seg1_perplexity
+                        + seg1_impScore
+                        + seg2_impScore
+                        #+ tfidf_cosine_similarity
+                        , data = hard_threshold_complete, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+```{r}
+library(car)
+
+anova(model_interact_sem_per_contradiction, model_interact_tfidf_per_contradiction, test = "Chisq")
+
+print("R2 interaction prag_distance")
+performance::r2_nakagawa(model_interact_sem_per_contradiction)
+
+print("R2 interaction seg1 len x preplexity")
+performance::r2_nakagawa(model_interact_seg1_len_per_contradiction)
+```
+
+
+```{r}
+model_interact_imp_contradiction <- glmer(is_contradiction ~ (1|CorpusID) 
+                        + cosine_similarity * tfidf_cosine_similarity
+                        #+ tfidf_cosine_similarity * seg2_given_seg1_perplexity
+                        + cosine_similarity * prag_distance
+                        + cosine_similarity * seg2_given_seg1_perplexity
+                        + prag_distance * seg2_given_seg1_perplexity
+                        + seg2_given_seg1_perplexity * seg1_perplexity 
+                        + seg2_given_seg1_perplexity * seg2_perplexity
+                        + seg2_n_tokens
+                        + seg1_n_tokens #* seg2_given_seg1_perplexity
+                        + prag_distance * seg1_impScore
+                        + prag_distance * seg2_impScore
+                        #+ seg1_impScore
+                        #+ seg2_impScore
+                        #+ tfidf_cosine_similarity
+                        , data = hard_threshold_complete, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+```{r}
+library(car)
+
+anova(model_interact_sem_per_contradiction, model_interact_imp_contradiction, test = "Chisq")
+
+print("R2 interaction prag_distance")
+performance::r2_nakagawa(model_interact_sem_per_contradiction)
+
+print("R2 interaction imp x prag_distance")
+performance::r2_nakagawa(model_interact_imp_contradiction)
+```
+
+```{r}
+model_interact_three_way_contradiction <- glmer(is_contradiction ~ (1|CorpusID) 
+                        + cosine_similarity * tfidf_cosine_similarity * seg2_given_seg1_perplexity
+                        #+ cosine_similarity * tfidf_cosine_similarity
+                        #+ tfidf_cosine_similarity * seg2_given_seg1_perplexity
+                        + cosine_similarity * prag_distance
+                        + cosine_similarity * seg2_given_seg1_perplexity
+                        + prag_distance * seg2_given_seg1_perplexity
+                        + seg2_given_seg1_perplexity * seg1_perplexity 
+                        + seg2_given_seg1_perplexity * seg2_perplexity
+                        + seg2_n_tokens
+                        + seg1_n_tokens #* seg2_given_seg1_perplexity
+                        + prag_distance * seg1_impScore
+                        + prag_distance * seg2_impScore
+                        #+ seg1_impScore
+                        #+ seg2_impScore
+                        #+ tfidf_cosine_similarity
+                        , data = hard_threshold_complete, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+```{r}
+library(car)
+
+anova(model_interact_imp_contradiction, model_interact_three_way_contradiction, test = "Chisq")
+
+print("R2 interaction imp x prag_distance")
+performance::r2_nakagawa(model_interact_imp_contradiction)
+
+print("R2 3-way")
+performance::r2_nakagawa(model_interact_three_way_contradiction)
+```
+
+```{r}
+model_interact_three_way_prag_contradiction <- glmer(is_contradiction ~ (1|CorpusID) 
+                        + cosine_similarity * tfidf_cosine_similarity
+                        #+ tfidf_cosine_similarity * seg2_given_seg1_perplexity
+                        + cosine_similarity * prag_distance * seg2_given_seg1_perplexity
+                        + prag_distance * seg2_given_seg1_perplexity
+                        + seg2_given_seg1_perplexity * seg1_perplexity 
+                        + seg2_given_seg1_perplexity * seg2_perplexity
+                        + seg2_n_tokens
+                        + seg1_n_tokens #* seg2_given_seg1_perplexity
+                        + prag_distance * seg1_impScore
+                        + prag_distance * seg2_impScore
+                        #+ seg1_impScore
+                        #+ seg2_impScore
+                        #+ tfidf_cosine_similarity
+                        , data = hard_threshold_complete, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+```{r}
+library(car)
+
+anova(model_interact_imp_contradiction, model_interact_three_way_prag_contradiction, test = "Chisq")
+
+print("R2 interaction imp x prag_distance")
+performance::r2_nakagawa(model_interact_imp_contradiction)
+
+print("R2 3-way cos x prag x perplexity")
+performance::r2_nakagawa(model_interact_three_way_prag_contradiction)
+```
+
+
+```{r}
+Anova(model_interact_imp_contradiction)
+```
+
+```{r}
+model_interact_imp_refined_contradiction <- glmer(is_contradiction ~ (1|CorpusID) 
+                        + cosine_similarity * tfidf_cosine_similarity
+                        #+ tfidf_cosine_similarity * seg2_given_seg1_perplexity
+                        + cosine_similarity * prag_distance
+                        + cosine_similarity * seg2_given_seg1_perplexity
+                        #+ prag_distance * seg2_given_seg1_perplexity
+                        + seg2_given_seg1_perplexity * seg1_perplexity 
+                        #+ seg2_given_seg1_perplexity * seg2_perplexity
+                        + seg2_n_tokens
+                        + seg1_n_tokens #* seg2_given_seg1_perplexity
+                        #+ prag_distance * seg1_impScore
+                        + prag_distance * seg2_impScore
+                        #+ seg1_impScore
+                        #+ seg2_impScore
+                        #+ tfidf_cosine_similarity
+                        , data = hard_threshold_complete, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+```{r}
+library(car)
+
+anova(model_interact_imp_contradiction, model_interact_imp_refined_contradiction, test = "Chisq")
+
+print("R2 interaction imp x prag_distance")
+performance::r2_nakagawa(model_interact_imp_contradiction)
+
+print("R2 interaction imp x prag_distance refined")
+performance::r2_nakagawa(model_interact_imp_refined_contradiction)
+```
+
+```{r}
+Anova(model_interact_imp_refined_contradiction)
+```
+```{r}
+library(broom.mixed)
+library(dplyr)
+
+effects_table <- tidy(model_interact_imp_refined, effects = "fixed", conf.int = TRUE) %>%
+  arrange(p.value) %>%
+  mutate(significance = case_when(
+    p.value < 0.001 ~ "***",
+    p.value < 0.01  ~ "**",
+    p.value < 0.05  ~ "*",
+    TRUE ~ ""
+  ))
+
+effects_table
+```
+
+
+```{r}
+library(lme4)
+library(performance)
+library(broom.mixed)
+library(purrr)
+
+# Define your dropped blocks from earlier
+blocks_dropped <- list(
+  syntactic = c("seg1_dependency_distance_mean", "seg2_dependency_distance_mean",
+                "seg1_prop_adjacent_dependency_relation_mean", "seg2_prop_adjacent_dependency_relation_mean",
+                "seg1_avg_subclauses", "seg2_avg_subclauses",
+                "seg1_avg_tree_depth", "seg2_avg_tree_depth"),
+  structure = c("seg1_sentence_length_mean", "seg2_sentence_length_mean"),
+  sentiment = c("seg1_senti", "seg2_senti"),
+  lexical_markers = c("seg1_has_deduction", "seg2_has_deduction",
+                      "seg1_has_refutation", "seg2_has_refutation", 
+                      "seg1_has_condition", "seg2_has_condition",
+                      "seg1_has_explanation", "seg2_has_explanation", 
+                      "seg1_has_adverb_of_emphasis", "seg2_has_adverb_of_emphasis",
+                      "seg1_has_justification", "seg2_has_justification", 
+                      "seg1_has_modal_verbs", "seg2_has_modal_verbs")
+)
+
+# Loop through them and test one-at-a-time addition
+block_refit_results_contradiction <- map_df(names(blocks_dropped), function(b) {
+  predictors <- paste(blocks_dropped[[b]], collapse = " + ")
+  m_block <- update(model_interact_imp_refined, paste(". ~ . +", predictors))
+  comp <- anova(model_interact_imp_refined, m_block, test = "Chisq")
+  tibble(
+    block = b,
+    delta_AIC = AIC(model_interact_imp_refined) - AIC(m_block),
+    LRT_p = comp$`Pr(>Chisq)`[2],
+    R2_marg_gain = performance::r2_nakagawa(m_block)$R2_marginal -
+                   performance::r2_nakagawa(model_interact_imp_refined)$R2_marginal
+  )
+})
+
+block_refit_results
+```
+
+```{r}
+#summary(update(model_interact_three_way_refined, . ~ . + seg1_avg_tree_depth + seg2_avg_tree_depth))
+car::Anova(update(model_interact_imp_refined_contradiction, . ~ . + seg1_has_deduction
+                                                          + seg2_has_deduction
+                                                          + seg1_has_refutation
+                                                          + seg2_has_refutation
+                                                          + seg1_has_condition
+                                                          + seg2_has_condition
+                                                          + seg1_has_explanation
+                                                          + seg2_has_explanation
+                                                          + seg1_has_adverb_of_emphasis
+                                                          + seg2_has_adverb_of_emphasis
+                                                          + seg1_has_justification
+                                                          + seg2_has_justification
+                                                          + seg1_has_modal_verbs
+                                                          + seg2_has_modal_verbs), type="III")
+```
+
+```{r}
+car::Anova(update(model_interact_imp_refined_contradiction, . ~ . + seg1_sentence_length_mean
+                                                          + seg2_sentence_length_mean), type="III")
+```
+
+```{r}
+car::Anova(update(model_interact_imp_refined_contradiction, . ~ . + seg1_senti + seg2_senti), type="III")
+```
+
+```{r}
+car::Anova(update(model_interact_imp_refined_contradiction, . ~ . + seg1_dependency_distance_mean
+                                                          + seg2_dependency_distance_mean
+                                                          + seg1_prop_adjacent_dependency_relation_mean
+                                                          + seg2_prop_adjacent_dependency_relation_mean
+                                                          + seg1_avg_subclauses
+                                                          + seg2_avg_subclauses
+                                                          + seg1_avg_tree_depth
+                                                          + seg2_avg_tree_depth), type="III")
+```
+
+```{r}
+model_final_expanded_contradiction <- glmer(is_contradiction ~ (1|CorpusID) 
+                        + cosine_similarity * tfidf_cosine_similarity
+                        #+ tfidf_cosine_similarity * seg2_given_seg1_perplexity
+                        + cosine_similarity * prag_distance
+                        + cosine_similarity * seg2_given_seg1_perplexity
+                        #+ prag_distance * seg2_given_seg1_perplexity
+                        + seg2_given_seg1_perplexity * seg1_perplexity 
+                        #+ seg2_given_seg1_perplexity * seg2_perplexity
+                        + seg2_n_tokens
+                        + seg1_n_tokens #* seg2_given_seg1_perplexity
+                        #+ prag_distance * seg1_impScore
+                        + prag_distance * seg2_impScore
+                        #+ seg1_impScore
+                        #+ seg2_impScore
+                        #+ tfidf_cosine_similarity
+                        + seg1_senti
+                        + seg2_senti
+                        + seg1_avg_tree_depth
+                        + seg1_dependency_distance_mean
+                        + seg2_dependency_distance_mean
+                        + seg2_prop_adjacent_dependency_relation_mean
+                        + seg1_sentence_length_mean
+                        + seg2_sentence_length_mean
+                        + seg2_has_refutation
+                        + seg1_has_condition
+                        + seg2_has_condition
+                        + seg2_has_explanation
+                        + seg1_has_adverb_of_emphasis
+                        + seg2_has_adverb_of_emphasis
+                        + seg1_has_justification
+                        + seg2_has_justification
+                        + seg1_has_modal_verbs
+                        , data = hard_threshold_complete, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+```{r}
+library(car)
+
+anova(model_interact_imp_refined_contradiction, model_final_expanded_contradiction, test = "Chisq")
+
+print("R2 interaction imp x prag_distance refined")
+performance::r2_nakagawa(model_interact_imp_refined_contradiction)
+print("R2 expanded model")
+performance::r2_nakagawa(model_final_expanded_contradiction)
+
+car::Anova(model_final_expanded_contradiction, type="III")
+```
+
+```{r}
+model_final_expanded_refined_contradiction <- glmer(is_contradiction ~ (1|CorpusID) 
+                        + cosine_similarity * tfidf_cosine_similarity
+                        #+ tfidf_cosine_similarity * seg2_given_seg1_perplexity
+                        + cosine_similarity * prag_distance
+                        + cosine_similarity * seg2_given_seg1_perplexity
+                        #+ prag_distance * seg2_given_seg1_perplexity
+                        + seg2_given_seg1_perplexity * seg1_perplexity 
+                        #+ seg2_given_seg1_perplexity * seg2_perplexity
+                        + seg2_n_tokens
+                        + seg1_n_tokens #* seg2_given_seg1_perplexity
+                        #+ prag_distance * seg1_impScore
+                        + prag_distance * seg2_impScore
+                        #+ seg1_impScore
+                        #+ seg2_impScore
+                        #+ tfidf_cosine_similarity
+                        + seg1_senti
+                        + seg2_senti
+                        #+ seg1_avg_tree_depth
+                        #+ seg1_dependency_distance_mean
+                        + seg2_dependency_distance_mean
+                        + seg2_prop_adjacent_dependency_relation_mean
+                        #+ seg1_sentence_length_mean
+                        #+ seg2_sentence_length_mean
+                        + seg2_has_refutation
+                        #+ seg1_has_condition
+                        + seg2_has_condition
+                        #+ seg2_has_explanation
+                        + seg1_has_adverb_of_emphasis
+                        + seg2_has_adverb_of_emphasis
+                        + seg1_has_justification
+                        + seg2_has_justification
+                        + seg1_has_modal_verbs
+                        , data = hard_threshold_complete, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+```{r}
+library(car)
+
+anova(model_final_expanded_contradiction, model_final_expanded_refined_contradiction, test = "Chisq")
+
+print("R2 expanded model")
+performance::r2_nakagawa(model_final_expanded_contradiction)
+print("R2 expanded model refined")
+performance::r2_nakagawa(model_final_expanded_refined_contradiction)
+
+car::Anova(model_final_expanded_refined_contradiction, type="III")
+```
+
+```{r}
+library(tidyr)
+library(dplyr)
+library(tibble)
+
+# 1. Get the fixed-effect formula from your final model
+fe_formula <- formula(model_final_expanded_refined_contradiction, fixed.only = TRUE)
+
+# 2. Get all unique, raw variable names from the formula
+#    This intelligently extracts "seg1_senti", "cosine_similarity", etc.,
+#    and ignores the DV and interaction symbols.
+raw_predictors <- all.vars(fe_formula)[-1] # [-1] removes the DV "is_entailment"
+
+# 3. Create a numeric-only dataframe for correlation
+model_data_numeric <- hard_threshold_complete %>%
+  
+  # Select only the predictors that are actually in the final model
+  select(all_of(raw_predictors)) %>%
+  
+  # Convert any factor columns (like "seg1_senti") to numeric 0s and 1s
+  # We use as.character(.) first to avoid converting to internal factor levels
+  mutate_if(is.factor, as.numeric)
+
+ 
+cor(model_data_numeric, use = "pairwise.complete.obs")
+
+strong_correlations <- as.data.frame(predictor_cor_matrix) %>%
+  rownames_to_column("Var1") %>%
+  pivot_longer(
+    cols = -Var1,
+    names_to = "Var2",
+    values_to = "Correlation"
+  ) %>%
+  filter(abs(Correlation) > 0.4 & Var1 < Var2) %>%
+  arrange(desc(abs(Correlation)))
+
+# 4. Print the final, clean table
+print(strong_correlations)
+```
+
+```{r}
+model_final_expanded_prag_tfidf_contradiction <- glmer(is_contradiction ~ (1|CorpusID) 
+                        + cosine_similarity * tfidf_cosine_similarity
+                        #+ tfidf_cosine_similarity * seg2_given_seg1_perplexity
+                        + cosine_similarity * prag_distance
+                        + cosine_similarity * seg2_given_seg1_perplexity
+                        #+ prag_distance * seg2_given_seg1_perplexity
+                        + seg2_given_seg1_perplexity * seg1_perplexity 
+                        #+ seg2_given_seg1_perplexity * seg2_perplexity
+                        + seg2_n_tokens
+                        + seg1_n_tokens #* seg2_given_seg1_perplexity
+                        #+ prag_distance * seg1_impScore
+                        + prag_distance * seg2_impScore
+                        + prag_distance * tfidf_cosine_similarity
+                        #+ seg1_impScore
+                        #+ seg2_impScore
+                        #+ tfidf_cosine_similarity
+                        + seg1_senti
+                        + seg2_senti
+                        #+ seg1_avg_tree_depth
+                        #+ seg1_dependency_distance_mean
+                        + seg2_dependency_distance_mean
+                        + seg2_prop_adjacent_dependency_relation_mean
+                        #+ seg1_sentence_length_mean
+                        #+ seg2_sentence_length_mean
+                        + seg2_has_refutation
+                        #+ seg1_has_condition
+                        + seg2_has_condition
+                        #+ seg2_has_explanation
+                        + seg1_has_adverb_of_emphasis
+                        + seg2_has_adverb_of_emphasis
+                        + seg1_has_justification
+                        + seg2_has_justification
+                        + seg1_has_modal_verbs
+                        , data = hard_threshold_complete, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+```
+
+```{r}
+library(car)
+
+anova(model_interact_imp_refined_contradiction, model_final_expanded_prag_tfidf_contradiction, test = "Chisq")
+
+print("R2 expanded model refined")
+performance::r2_nakagawa(model_interact_imp_refined_contradiction)
+
+print("R2 expanded model tfidf x prag")
+performance::r2_nakagawa(model_final_expanded_prag_tfidf_contradiction)
+
+car::Anova(model_final_expanded_prag_tfidf_contradiction, type="III")
+```
+
+```{r}
+model_final_expanded_interactions_contradiction <- glmer(is_contradiction ~ (1|CorpusID) 
+                        + cosine_similarity * tfidf_cosine_similarity
+                        #+ tfidf_cosine_similarity * seg2_given_seg1_perplexity
+                        + cosine_similarity * prag_distance
+                        + cosine_similarity * seg2_given_seg1_perplexity
+                        #+ prag_distance * seg2_given_seg1_perplexity
+                        + seg2_given_seg1_perplexity * seg1_perplexity 
+                        #+ seg2_given_seg1_perplexity * seg2_perplexity
+                        + seg2_n_tokens * seg2_dependency_distance_mean
+                        + seg1_n_tokens #* seg2_given_seg1_perplexity
+                        #+ prag_distance * seg1_impScore
+                        + prag_distance * seg2_impScore
+                        #+ seg1_impScore
+                        #+ seg2_impScore
+                        #+ tfidf_cosine_similarity
+                        + seg1_senti
+                        + seg2_senti
+                        #+ seg1_avg_tree_depth
+                        #+ seg1_dependency_distance_mean
+                        
+                        + seg2_prop_adjacent_dependency_relation_mean
+                        #+ seg1_sentence_length_mean
+                        #+ seg2_sentence_length_mean
+                        + seg2_has_refutation
+                        #+ seg1_has_condition
+                        + seg2_has_condition
+                        #+ seg2_has_explanation
+                        + seg1_has_adverb_of_emphasis
+                        + seg2_has_adverb_of_emphasis
+                        + seg1_has_justification
+                        + seg2_has_justification
+                        + seg1_has_modal_verbs
+                        , data = hard_threshold_complete, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+
+```
+
+```{r}
+library(car)
+
+anova(model_interact_imp_refined_contradiction, model_final_expanded_interactions_contradiction, test = "Chisq")
+
+print("R2 expanded model refined")
+performance::r2_nakagawa(model_interact_imp_refined_contradiction)
+
+print("R2 expanded model tfidf x prag")
+performance::r2_nakagawa(model_final_expanded_interactions_contradiction)
+
+car::Anova(model_final_expanded_interactions_contradiction, type="III")
+```
+
+```{r}
+model_final_expanded_remove_per_contradiction <- glmer(is_contradiction ~ (1|CorpusID) 
+                        + cosine_similarity * tfidf_cosine_similarity
+                        #+ tfidf_cosine_similarity * seg2_given_seg1_perplexity
+                        + cosine_similarity * prag_distance
+                        + cosine_similarity * seg2_given_seg1_perplexity
+                        #+ prag_distance * seg2_given_seg1_perplexity
+                        #+ seg2_given_seg1_perplexity * seg1_perplexity 
+                        #+ seg2_given_seg1_perplexity * seg2_perplexity
+                        + seg2_n_tokens * seg2_dependency_distance_mean
+                        + seg1_n_tokens #* seg2_given_seg1_perplexity
+                        #+ prag_distance * seg1_impScore
+                        + prag_distance * seg2_impScore
+                        #+ seg1_impScore
+                        #+ seg2_impScore
+                        #+ tfidf_cosine_similarity
+                        + seg1_senti
+                        + seg2_senti
+                        #+ seg1_avg_tree_depth
+                        #+ seg1_dependency_distance_mean
+                        
+                        + seg2_prop_adjacent_dependency_relation_mean
+                        #+ seg1_sentence_length_mean
+                        #+ seg2_sentence_length_mean
+                        + seg2_has_refutation
+                        #+ seg1_has_condition
+                        + seg2_has_condition
+                        #+ seg2_has_explanation
+                        #+ seg1_has_adverb_of_emphasis
+                        + seg2_has_adverb_of_emphasis
+                        + seg1_has_justification
+                        + seg2_has_justification
+                        + seg1_has_modal_verbs
+                        , data = hard_threshold_complete, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+
+```
+
+```{r}
+library(car)
+
+anova(model_final_expanded_interactions_contradiction, model_final_expanded_remove_per_contradiction, test = "Chisq")
+
+print("R2 expanded model refined")
+performance::r2_nakagawa(model_interact_imp_refined_contradiction)
+print("R2 expanded model remove perplexity")
+performance::r2_nakagawa(model_final_expanded_remove_per_contradiction)
+
+car::Anova(model_final_expanded_remove_per_contradiction, type="III")
+```
+
+```{r}
+model_final_contradiction <- glmer(is_contradiction ~ (1|CorpusID) 
+                        + cosine_similarity * tfidf_cosine_similarity
+                        #+ tfidf_cosine_similarity * seg2_given_seg1_perplexity
+                        + cosine_similarity * prag_distance
+                        + cosine_similarity * seg2_given_seg1_perplexity
+                        #+ prag_distance * seg2_given_seg1_perplexity
+                        #+ seg2_given_seg1_perplexity * seg1_perplexity 
+                        #+ seg2_given_seg1_perplexity * seg2_perplexity
+                        + seg2_n_tokens * seg2_dependency_distance_mean
+                        + seg1_n_tokens #* seg2_given_seg1_perplexity
+                        #+ prag_distance * seg1_impScore
+                        + prag_distance * seg2_impScore
+                        #+ seg1_impScore
+                        #+ seg2_impScore
+                        #+ tfidf_cosine_similarity
+                        + seg1_senti
+                        + seg2_senti
+                        #+ seg1_avg_tree_depth
+                        #+ seg1_dependency_distance_mean
+                        + seg2_prop_adjacent_dependency_relation_mean
+                        #+ seg1_sentence_length_mean
+                        #+ seg2_sentence_length_mean
+                        + seg2_has_refutation
+                        #+ seg1_has_condition
+                        + seg2_has_condition
+                        #+ seg2_has_explanation
+                        #+ seg1_has_adverb_of_emphasis
+                        #+ seg2_has_adverb_of_emphasis
+                        + seg1_has_justification
+                        + seg2_has_justification
+                        + seg1_has_modal_verbs
+                        , data = hard_threshold_complete, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+
+```
+
+```{r}
+library(car)
+anova(#model_final_expanded_interactions_contradiction, 
+  model_final_contradiction, text="Chisq")
+#performance::r2_nakagawa(model_final_expanded_interactions_contradiction)
+performance::r2_nakagawa(model_final_contradiction)
+car::Anova(model_final_contradiction, type="III")
+performance::check_collinearity(model_final_contradiction)
+```
+```{r}
+# --- This is your MAIN results table ---
+# It's simple, clean, and you already have it.
+library(car)
+model_significance <- car::Anova(model_final_contradiction_hard, type = "III")
+print(model_significance)
+
+# --- This table goes in your APPENDIX ---
+library(broom.mixed)
+appendix_table <- tidy(model_final_contradiction_hard,
+                       effects = "fixed",
+                       #exponentiate = TRUE,
+                       conf.int = TRUE)
+
+print(appendix_table)
+
+# --- This is the ONE-LINE solution ---
+library(sjPlot)
+
+# This command creates a beautiful, publication-ready
+# HTML table right in your RStudio viewer.
+tab_model(
+  model_final_contradiction_hard, 
+  dv.labels = "Predicting Entailment (is_entailment = 1)",
+  p.style = "scientific"
+)
+```

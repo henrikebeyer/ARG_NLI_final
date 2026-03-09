@@ -1,12 +1,3 @@
-,0
-cosine_miniLM,0.27633351230807607
-seg1_pos_prop_PRON,-0.1067112280502317
-seg2_n_unique_tokens,-0.10316033862028137
-seg2_n_characters,-0.10916449501363025
-seg1_flesch_reading_ease,-0.10335836349128293
-seg1_flesch_kincaid_grade,0.10655315521163841
-seg1_gunning_fog,0.13682897347631845
-seg1_automated_readability_index,0.11335993358351847
-seg1_coleman_liau_index,0.11210998491604718
-seg1_lix,0.12001659375996385
-seg1_rix,0.11220631247634782
+version https://git-lfs.github.com/spec/v1
+oid sha256:ee60ed9c513da8c1a85ffd16840cdf85bcc991e5ab9314ae5ff16d5dc711bd56
+size 441

@@ -1,11 +1,3 @@
-,0
-seg1_senti,-0.24599706876541735
-seg2_senti,0.1734972025493129
-jaccard_sim,0.10378125413619664
-seg1_pos_prop_ADJ,-0.1416853445939838
-seg2_pos_prop_NOUN,-0.10161254905969838
-seg1_pos_prop_PART,0.10671766660925291
-seg2_pos_prop_PROPN,0.10349517141421052
-seg1_pos_prop_PUNCT,-0.12431277388004278
-seg1_pos_prop_SYM,0.129100929813706
-joint_first_order_coherence,0.10803845155272696
+version https://git-lfs.github.com/spec/v1
+oid sha256:54ac550609577755feebe0291232dd16a8fd563303b057aa862c18184afc7717
+size 379

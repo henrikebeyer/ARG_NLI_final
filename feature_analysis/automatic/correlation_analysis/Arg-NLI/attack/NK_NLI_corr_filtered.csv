@@ -1,18 +1,3 @@
-,0
-cosine_miniLM,0.21327838957489303
-seg2_n_stop_words,-0.11582178406105566
-seg2_pos_prop_ADJ,0.12837283921993348
-seg2_pos_prop_ADV,-0.1197218175220096
-seg1_pos_prop_AUX,-0.10562568170537161
-seg2_pos_prop_AUX,-0.22238186728160544
-seg1_pos_prop_CCONJ,-0.13753112399909384
-seg2_pos_prop_NOUN,0.11848787063906002
-seg2_pos_prop_NUM,0.14072057442512628
-seg2_pos_prop_PRON,-0.1644897368246723
-seg1_pos_prop_PROPN,0.1036715660072638
-seg1_pos_prop_PUNCT,0.14019413305175785
-seg2_pos_prop_SCONJ,-0.12257142957112761
-seg2_pos_prop_SYM,0.15943375326024145
-seg1_token_length_median,0.1479059742955656
-seg2_token_length_median,-0.10946951940079816
-seg2_n_sentences,-0.11948135580010687
+version https://git-lfs.github.com/spec/v1
+oid sha256:7664ac1200c0d4dd51483a33672f3ae32ed3996dda48b58d23c15c4a2c810bfd
+size 673

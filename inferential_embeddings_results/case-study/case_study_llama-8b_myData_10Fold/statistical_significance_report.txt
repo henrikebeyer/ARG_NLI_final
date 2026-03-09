@@ -1,0 +1,28 @@
+--- Significance Test: LLM Baseline (A) vs. My Model Embeddings (B) ---
+Model A Mean (Macro F1): 0.5577
+Model B Mean (Macro F1): 0.7129
+t-statistic: -35.8583
+p-value:     0.0000
+Conclusion:  ✅ SIGNIFICANT: Model B is statistically better (p < 0.05).
+==================================================
+--- Significance Test: LLM Explanations (A) vs. My Model Embeddings (B) ---
+Model A Mean (Macro F1): 0.6354
+Model B Mean (Macro F1): 0.7129
+t-statistic: -15.9276
+p-value:     0.0000
+Conclusion:  ✅ SIGNIFICANT: Model B is statistically better (p < 0.05).
+==================================================
+--- Significance Test: SBERT Ablation (A) vs. Super Fusion [My Model + SBERT] (B) ---
+Model A Mean (Macro F1): 0.7152
+Model B Mean (Macro F1): 0.7297
+t-statistic: -3.5670
+p-value:     0.0061
+Conclusion:  ✅ SIGNIFICANT: Model B is statistically better (p < 0.05).
+==================================================
+--- Significance Test: SBERT Ablation (A) vs. My Model (B) ---
+Model A Mean (Macro F1): 0.7152
+Model B Mean (Macro F1): 0.7129
+t-statistic: 0.5269
+p-value:     0.6110
+Conclusion:  ⚠️ NOT SIGNIFICANT: The difference is likely due to chance (p = 0.6110).
+==================================================

@@ -1,7 +1,3 @@
-,0
-seg2_senti,0.1395188145375022
-cosine_miniLM,0.28404677566445774
-jaccard_sim,0.16572664866744044
-seg2_pos_prop_NOUN,0.1519601912325217
-seg2_pos_prop_PROPN,-0.10376528109034916
-joint_first_order_coherence,0.146105346004492
+version https://git-lfs.github.com/spec/v1
+oid sha256:2a22fc3b779bcac65f77efb9ebb8cf9058b4d5cc459889dc5573e858647fec2a
+size 224
