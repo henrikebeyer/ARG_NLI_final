@@ -1,4 +1,4 @@
-# From Semantics to Reasoning -- Modelling Pragmatic Argumentative Inferences
+# From Semantics to Reasoning - Modelling Pragmatic Argumentative Inferences
 
 This repository contains the experimental code, data, and analysis files used for the paper *"From Semantics to Reasoning - Modelling Pragmatic Argumentative Inferences"*. 
 
